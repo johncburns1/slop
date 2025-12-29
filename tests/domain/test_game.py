@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from slop.domain import Game, GameSettings, GameStatus, Player, Team
+from slop.domain import ContentTone, Game, GameSettings, GameStatus, Player, Team
 
 
 def test_game_status_enum():
@@ -15,6 +15,12 @@ def test_game_status_enum():
     assert GameStatus.FINISHED.value == "finished"
 
 
+def test_content_tone_enum():
+    """Test ContentTone enum values."""
+    assert ContentTone.FAMILY.value == "family"
+    assert ContentTone.ADULT.value == "adult"
+
+
 def test_game_settings_creation():
     """Test creating game settings with defaults."""
     settings = GameSettings()
@@ -22,7 +28,7 @@ def test_game_settings_creation():
     assert settings.rounds_per_team == 3
     assert settings.guess_timer_seconds == 60
     assert settings.max_players_per_team == 3
-    assert settings.content_tone == "family"
+    assert settings.content_tone == ContentTone.FAMILY
 
 
 def test_game_settings_custom_values():
@@ -31,13 +37,13 @@ def test_game_settings_custom_values():
         rounds_per_team=5,
         guess_timer_seconds=90,
         max_players_per_team=4,
-        content_tone="adult",
+        content_tone=ContentTone.ADULT,
     )
 
     assert settings.rounds_per_team == 5
     assert settings.guess_timer_seconds == 90
     assert settings.max_players_per_team == 4
-    assert settings.content_tone == "adult"
+    assert settings.content_tone == ContentTone.ADULT
 
 
 def test_game_creation():
@@ -60,7 +66,7 @@ def test_game_creation():
 
 def test_game_with_custom_settings():
     """Test creating a game with custom settings."""
-    settings = GameSettings(rounds_per_team=5, content_tone="adult")
+    settings = GameSettings(rounds_per_team=5, content_tone=ContentTone.ADULT)
     game = Game(
         id="game-1",
         room_code="WXYZ",
@@ -68,7 +74,7 @@ def test_game_with_custom_settings():
     )
 
     assert game.settings.rounds_per_team == 5
-    assert game.settings.content_tone == "adult"
+    assert game.settings.content_tone == ContentTone.ADULT
 
 
 def test_game_add_player():
