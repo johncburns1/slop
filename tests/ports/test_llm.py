@@ -26,7 +26,6 @@ class MockLLMAdapter:
         prompt: str,
         personality: AIPersonality,
         num_roles: int,
-        content_tone: str,
     ) -> Script:
         """Mock implementation of script generation."""
         roles = [
@@ -48,23 +47,24 @@ def test_mock_adapter_implements_llm_port():
 
 
 @pytest.mark.asyncio
-async def test_llm_port_generate_script_signature():
-    """Test that generate_script has the correct signature."""
+async def test_llm_port_generate_script():
+    """Test that generate_script creates a script with correct structure."""
     adapter = MockLLMAdapter()
     personality = AIPersonality(
-        id="test",
-        name="Test",
-        description="Test personality",
-        system_prompt="Test prompt",
+        id="dramatic",
+        name="Dramatic Director",
+        description="Over-the-top dramatic scenes",
+        system_prompt="Create dramatic theatrical scripts...",
     )
 
     script = await adapter.generate_script(
-        prompt="Test prompt",
+        prompt="Detective solves mysterious art heist",
         personality=personality,
         num_roles=2,
-        content_tone="family",
     )
 
     assert isinstance(script, Script)
     assert len(script.roles) == 2
-    assert script.personality == "test"
+    assert script.personality == "dramatic"
+    assert script.word_count > 0
+    assert script.estimated_duration > 0

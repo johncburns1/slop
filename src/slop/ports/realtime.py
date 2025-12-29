@@ -4,61 +4,63 @@ This port defines the contract for real-time communication
 between the server and clients (WebSocket, etc.).
 """
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from slop.domain.events import GameEvent
 
 
 class RealtimePort(Protocol):
     """Interface for real-time communication with clients.
 
-    Implementations can use WebSocket libraries (Socket.io, etc.)
-    to provide synchronized game state across all player devices.
+    Implementations use WebSocket libraries (Socket.io, etc.)
+    to broadcast domain events and synchronize game state across
+    all player devices in real-time.
     """
 
-    async def broadcast_to_room(self, room_id: str, event: str, data: dict[str, Any]) -> None:
-        """Broadcast a message to all players in a room.
+    async def broadcast_to_room(self, room_code: str, event: GameEvent) -> None:
+        """Broadcast a domain event to all players in a room.
+
+        Events are serialized to JSON and sent to all connected
+        clients in the specified room. Clients use these events
+        to update their local state mirrors.
 
         Args:
-            room_id: The room/game ID to broadcast to
-            event: The event type/name
-            data: The event payload data
+            room_code: The game's room code to broadcast to
+            event: The domain event to broadcast
         """
         ...
 
-    async def send_to_player(self, player_id: str, event: str, data: dict[str, Any]) -> None:
-        """Send a message to a specific player.
+    async def send_to_player(self, socket_id: str, event: GameEvent) -> None:
+        """Send a domain event to a specific player.
+
+        Used for player-specific notifications or view-specific data
+        (e.g., script content visible only to acting team).
 
         Args:
-            player_id: The player's unique identifier
-            event: The event type/name
-            data: The event payload data
+            socket_id: The player's WebSocket connection ID
+            event: The domain event to send
         """
         ...
 
-    async def add_player_to_room(self, player_id: str, room_id: str) -> None:
-        """Add a player to a room for real-time updates.
+    async def join_room(self, socket_id: str, room_code: str) -> None:
+        """Add a player's connection to a room.
+
+        Called when a player joins a game. Enables them to receive
+        broadcast events for that room.
 
         Args:
-            player_id: The player's unique identifier
-            room_id: The room/game ID
+            socket_id: The player's WebSocket connection ID
+            room_code: The game's room code
         """
         ...
 
-    async def remove_player_from_room(self, player_id: str, room_id: str) -> None:
-        """Remove a player from a room.
+    async def leave_room(self, socket_id: str, room_code: str) -> None:
+        """Remove a player's connection from a room.
+
+        Called when a player leaves a game or disconnects.
 
         Args:
-            player_id: The player's unique identifier
-            room_id: The room/game ID
-        """
-        ...
-
-    async def get_players_in_room(self, room_id: str) -> list[str]:
-        """Get all players currently in a room.
-
-        Args:
-            room_id: The room/game ID
-
-        Returns:
-            List of player IDs in the room
+            socket_id: The player's WebSocket connection ID
+            room_code: The game's room code
         """
         ...

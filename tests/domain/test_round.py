@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from slop.domain import Guess, Role, Round, Script
+from slop.domain import Guess, Role, RoleAssignment, Round, Script
 
 
 @pytest.fixture
@@ -19,6 +19,19 @@ def sample_script():
         roles=roles,
         personality="dramatic",
     )
+
+
+def test_role_assignment_creation():
+    """Test creating a role assignment."""
+    assignment = RoleAssignment(
+        player_id="player-1",
+        role_name="Detective",
+        character_description="A hard-boiled detective with a troubled past",
+    )
+
+    assert assignment.player_id == "player-1"
+    assert assignment.role_name == "Detective"
+    assert assignment.character_description == "A hard-boiled detective with a troubled past"
 
 
 def test_guess_creation():
