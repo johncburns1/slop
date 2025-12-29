@@ -1,9 +1,11 @@
 """Tests for Realtime port interface."""
 
-from typing import Any, Protocol
+from typing import Protocol
 
 import pytest
 
+from slop.domain import GameCreated, RoundStarted
+from slop.domain.events import GameEvent
 from slop.ports import RealtimePort
 
 
@@ -16,123 +18,109 @@ def test_realtime_port_has_required_methods():
     """Test that RealtimePort defines all required methods."""
     assert hasattr(RealtimePort, "broadcast_to_room")
     assert hasattr(RealtimePort, "send_to_player")
-    assert hasattr(RealtimePort, "add_player_to_room")
-    assert hasattr(RealtimePort, "remove_player_from_room")
-    assert hasattr(RealtimePort, "get_players_in_room")
+    assert hasattr(RealtimePort, "join_room")
+    assert hasattr(RealtimePort, "leave_room")
 
 
 class MockRealtimeAdapter:
     """Mock realtime adapter for testing protocol compliance."""
 
     def __init__(self):
-        self._rooms: dict[str, set[str]] = {}  # room_id -> set of player_ids
-        self._messages: list[tuple[str, str, dict[str, Any]]] = []  # type, target, data
+        self._rooms: dict[str, set[str]] = {}  # room_code -> set of socket_ids
+        self._messages: list[tuple[str, str, GameEvent]] = []  # type, target, event
 
-    async def broadcast_to_room(self, room_id: str, event: str, data: dict[str, Any]) -> None:
+    async def broadcast_to_room(self, room_code: str, event: GameEvent) -> None:
         """Mock broadcast to room implementation."""
-        self._messages.append(("broadcast", room_id, {"event": event, "data": data}))
+        self._messages.append(("broadcast", room_code, event))
 
-    async def send_to_player(self, player_id: str, event: str, data: dict[str, Any]) -> None:
+    async def send_to_player(self, socket_id: str, event: GameEvent) -> None:
         """Mock send to player implementation."""
-        self._messages.append(("send", player_id, {"event": event, "data": data}))
+        self._messages.append(("send", socket_id, event))
 
-    async def add_player_to_room(self, player_id: str, room_id: str) -> None:
-        """Mock add player to room implementation."""
-        if room_id not in self._rooms:
-            self._rooms[room_id] = set()
-        self._rooms[room_id].add(player_id)
+    async def join_room(self, socket_id: str, room_code: str) -> None:
+        """Mock join room implementation."""
+        if room_code not in self._rooms:
+            self._rooms[room_code] = set()
+        self._rooms[room_code].add(socket_id)
 
-    async def remove_player_from_room(self, player_id: str, room_id: str) -> None:
-        """Mock remove player from room implementation."""
-        if room_id in self._rooms:
-            self._rooms[room_id].discard(player_id)
-
-    async def get_players_in_room(self, room_id: str) -> list[str]:
-        """Mock get players in room implementation."""
-        return list(self._rooms.get(room_id, set()))
+    async def leave_room(self, socket_id: str, room_code: str) -> None:
+        """Mock leave room implementation."""
+        if room_code in self._rooms:
+            self._rooms[room_code].discard(socket_id)
 
 
 @pytest.mark.asyncio
 async def test_realtime_port_broadcast_to_room():
-    """Test broadcasting a message to a room."""
+    """Test broadcasting a domain event to a room."""
     adapter = MockRealtimeAdapter()
-
-    await adapter.broadcast_to_room(
-        room_id="room-1",
-        event="game_started",
-        data={"game_id": "game-1"},
+    event = GameCreated(
+        game_id="game-1",
+        room_code="ABCD",
+        content_tone="family",
+        max_players=12,
+        rounds_per_team=3,
     )
 
+    await adapter.broadcast_to_room(room_code="ABCD", event=event)
+
     assert len(adapter._messages) == 1
-    msg_type, target, payload = adapter._messages[0]
+    msg_type, target, broadcasted_event = adapter._messages[0]
     assert msg_type == "broadcast"
-    assert target == "room-1"
-    assert payload["event"] == "game_started"
+    assert target == "ABCD"
+    assert broadcasted_event.event_type == "GameCreated"
+    assert broadcasted_event.game_id == "game-1"
 
 
 @pytest.mark.asyncio
 async def test_realtime_port_send_to_player():
-    """Test sending a message to a specific player."""
+    """Test sending a domain event to a specific player."""
     adapter = MockRealtimeAdapter()
-
-    await adapter.send_to_player(
-        player_id="player-1",
-        event="role_assigned",
-        data={"role": "Hero"},
+    event = RoundStarted(
+        game_id="game-1",
+        round_number=1,
+        acting_team_id="team-1",
     )
 
+    await adapter.send_to_player(socket_id="socket-123", event=event)
+
     assert len(adapter._messages) == 1
-    msg_type, target, payload = adapter._messages[0]
+    msg_type, target, sent_event = adapter._messages[0]
     assert msg_type == "send"
-    assert target == "player-1"
-    assert payload["event"] == "role_assigned"
+    assert target == "socket-123"
+    assert sent_event.event_type == "RoundStarted"
 
 
 @pytest.mark.asyncio
-async def test_realtime_port_add_player_to_room():
+async def test_realtime_port_join_room():
     """Test adding a player to a room."""
     adapter = MockRealtimeAdapter()
 
-    await adapter.add_player_to_room("player-1", "room-1")
-    players = await adapter.get_players_in_room("room-1")
+    await adapter.join_room("socket-123", "ABCD")
 
-    assert "player-1" in players
+    assert "socket-123" in adapter._rooms["ABCD"]
 
 
 @pytest.mark.asyncio
-async def test_realtime_port_remove_player_from_room():
+async def test_realtime_port_leave_room():
     """Test removing a player from a room."""
     adapter = MockRealtimeAdapter()
 
-    await adapter.add_player_to_room("player-1", "room-1")
-    await adapter.remove_player_from_room("player-1", "room-1")
-    players = await adapter.get_players_in_room("room-1")
+    await adapter.join_room("socket-123", "ABCD")
+    await adapter.leave_room("socket-123", "ABCD")
 
-    assert "player-1" not in players
-
-
-@pytest.mark.asyncio
-async def test_realtime_port_get_players_in_room():
-    """Test getting all players in a room."""
-    adapter = MockRealtimeAdapter()
-
-    await adapter.add_player_to_room("player-1", "room-1")
-    await adapter.add_player_to_room("player-2", "room-1")
-    await adapter.add_player_to_room("player-3", "room-1")
-
-    players = await adapter.get_players_in_room("room-1")
-
-    assert len(players) == 3
-    assert "player-1" in players
-    assert "player-2" in players
-    assert "player-3" in players
+    assert "socket-123" not in adapter._rooms.get("ABCD", set())
 
 
 @pytest.mark.asyncio
-async def test_realtime_port_get_players_in_empty_room():
-    """Test getting players from a room that doesn't exist."""
+async def test_realtime_port_multiple_players_in_room():
+    """Test multiple players in the same room."""
     adapter = MockRealtimeAdapter()
 
-    players = await adapter.get_players_in_room("nonexistent-room")
+    await adapter.join_room("socket-1", "ABCD")
+    await adapter.join_room("socket-2", "ABCD")
+    await adapter.join_room("socket-3", "ABCD")
 
-    assert players == []
+    assert len(adapter._rooms["ABCD"]) == 3
+    assert "socket-1" in adapter._rooms["ABCD"]
+    assert "socket-2" in adapter._rooms["ABCD"]
+    assert "socket-3" in adapter._rooms["ABCD"]

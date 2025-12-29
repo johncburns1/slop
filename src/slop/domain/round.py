@@ -7,6 +7,18 @@ from slop.domain.script import Role, Script
 
 
 @dataclass
+class RoleAssignment:
+    """Represents the assignment of a role to a player in a round.
+
+    Links a player to a specific character role with its description.
+    """
+
+    player_id: str
+    role_name: str
+    character_description: str
+
+
+@dataclass
 class Guess:
     """Represents a team's guess for the original prompt.
 
