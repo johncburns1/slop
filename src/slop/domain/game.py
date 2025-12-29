@@ -18,6 +18,13 @@ class GameStatus(Enum):
     FINISHED = "finished"
 
 
+class ContentTone(Enum):
+    """Content tone options for generated scripts."""
+
+    FAMILY = "family"
+    ADULT = "adult"
+
+
 @dataclass
 class GameSettings:
     """Configuration settings for a game session."""
@@ -25,7 +32,7 @@ class GameSettings:
     rounds_per_team: int = 3
     guess_timer_seconds: int = 60
     max_players_per_team: int = 3
-    content_tone: str = "family"  # "family" or "adult"
+    content_tone: ContentTone = ContentTone.FAMILY
 
 
 @dataclass
