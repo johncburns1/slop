@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Development tools
+.pre-commit-config.yaml
+.editorconfig
+
+# Documentation
+*.md
+!README.md
+
+# Tests
+tests/
+*.test.py
+test_*.py
+
+# Frontend development
+frontend/node_modules/
+frontend/.vite/
+frontend/coverage/
+frontend/dist/.gitkeep
+
+# Claude Code
+.claude/
+
+# Fly.io
+fly.toml
+
+# UV lock file not needed in image (using uv.lock)
+# Keep uv.lock for reproducible builds
+
+# CI/CD
+.github/
+
+# Local development
+.env
+.env.local
+.env.*.local
+*.log
