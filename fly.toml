@@ -67,7 +67,3 @@ kill_timeout = '5s'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 1024
-
-# Single instance for MVP (no high availability)
-[ha_enabled]
-  false
