@@ -1,5 +1,7 @@
 # Slop
 
+[![CI](https://github.com/johncburns1/slop/actions/workflows/ci.yml/badge.svg)](https://github.com/johncburns1/slop/actions/workflows/ci.yml)
+
 An AI-powered party game where teams perform outrageous AI-generated scripts based on simple prompts. Players compete by acting out scenes and guessing each other's original prompts in a fast-paced, multiplayer experience.
 
 **Key Features:**
