@@ -30,9 +30,16 @@ jobs:
       - name: Validate (setup, lint, format, types, tests)
         run: uv run scripts/validate.py
 
-      - name: Upload validation summary
+      - name: Add validation report to job summary
+        if: always()
+        run: |
+          if [ -f .validation/report.md ]; then
+            cat .validation/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload validation output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: validation-summary
-          path: .validation/summary.json
+          path: .validation/
