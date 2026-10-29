@@ -27,3 +27,6 @@ dmypy.json
 
 # ruff
 .ruff_cache/
+
+# Validation output
+.validation/

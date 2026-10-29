@@ -5,13 +5,14 @@ Slop is an AI party game. Teams perform scripts that an LLM writes from six-word
 ## Commands
 
 ```bash
+uv run scripts/validate.py   # setup + all checks below; JSON summary in .validation/summary.json
 uv sync --all-extras
 uv run pytest
 uv run mypy src
 uv run ruff check --fix && uv run ruff format
 ```
 
-CI runs all four commands, and a change isn't done until they pass. There is no server entry point yet.
+CI runs `uv run scripts/validate.py`, and a change isn't done until it passes. There is no server entry point yet.
 
 ## Architecture rules
 
