@@ -43,3 +43,4 @@ jobs:
         with:
           name: validation-summary
           path: .validation/
+          include-hidden-files: true
