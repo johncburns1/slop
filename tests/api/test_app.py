@@ -5,6 +5,7 @@ from typing import Any
 
 from slop import __version__
 from slop.api import create_app
+from slop.api.schemas import HealthResponse
 
 
 async def get(path: str) -> tuple[int, dict[str, Any]]:
@@ -43,3 +44,13 @@ async def test_health_returns_ok_with_version() -> None:
 
     assert status == 200
     assert body == {"status": "ok", "version": __version__}
+
+
+def test_health_declares_typed_response_model() -> None:
+    schema = create_app().openapi()
+
+    response = schema["paths"]["/health"]["get"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/HealthResponse"
+    }
+    assert HealthResponse.model_validate({"status": "ok", "version": "1"}).status == "ok"
