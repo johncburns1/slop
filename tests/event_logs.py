@@ -12,9 +12,11 @@ from slop.domain import (
     GameEvent,
     GuessAccepted,
     GuessSubmitted,
+    NoGuessAccepted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
     PersonalityPicked,
+    PersonalityRevealed,
     PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
@@ -139,8 +141,19 @@ def round_zero_scored_events() -> list[GameEvent]:
         ),
         GuessAccepted(game_id=GAME_ID, round_number=0, team_id="team-2"),
         PersonalityGuessSubmitted(game_id=GAME_ID, round_number=0, personality_guess="noir"),
+        PersonalityRevealed(
+            game_id=GAME_ID, round_number=0, team_id="team-1", personality_id="noir"
+        ),
         ScoresUpdated(game_id=GAME_ID, round_number=0, score_changes={"team-1": 2, "team-2": 1}),
         RoundCompleted(game_id=GAME_ID, round_number=0, final_scores={"team-1": 2, "team-2": 1}),
+    ]
+
+
+def round_one_unguessed_events() -> list[GameEvent]:
+    """Team 2 acts in round 1 and nobody guesses its prompt."""
+    return [
+        RoundStarted(game_id=GAME_ID, timestamp=at(30), round_number=1, acting_team_id="team-2"),
+        NoGuessAccepted(game_id=GAME_ID, round_number=1),
     ]
 
 
@@ -167,6 +180,7 @@ def full_game_events() -> list[GameEvent]:
         ScriptGenerationFailed(game_id=GAME_ID, round_number=0, team_id="team-1"),
         ScriptReady(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
         *round_zero_scored_events(),
+        *round_one_unguessed_events(),
         GameCompleted(
             game_id=GAME_ID, final_scores={"team-1": 2, "team-2": 1}, winner_team_id="team-1"
         ),

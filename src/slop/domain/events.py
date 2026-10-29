@@ -175,11 +175,23 @@ class GuessSubmitted(GameEvent):
 
 
 class GuessAccepted(GameEvent):
-    """Emitted when a guess is accepted as correct."""
+    """Emitted when a guess is accepted as correct, which closes guessing for the round.
+
+    ``guess_index`` is the accepted guess's position in the round's guesses;
+    None accepts the team's latest guess.
+    """
 
     event_type: str = "GuessAccepted"
     round_number: int
     team_id: str
+    guess_index: int | None = None
+
+
+class NoGuessAccepted(GameEvent):
+    """Emitted when the acting team says nobody guessed its prompt, closing guessing."""
+
+    event_type: str = "NoGuessAccepted"
+    round_number: int
 
 
 class PersonalityGuessSubmitted(GameEvent):
@@ -188,6 +200,15 @@ class PersonalityGuessSubmitted(GameEvent):
     event_type: str = "PersonalityGuessSubmitted"
     round_number: int
     personality_guess: str
+
+
+class PersonalityRevealed(GameEvent):
+    """Emitted after the acting team's personality guess to say who really wrote the script."""
+
+    event_type: str = "PersonalityRevealed"
+    round_number: int
+    team_id: str
+    personality_id: str
 
 
 class ScoresUpdated(GameEvent):

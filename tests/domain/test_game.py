@@ -261,6 +261,24 @@ def test_game_get_acting_team():
     assert acting_team == team1
 
 
+def test_game_acting_team_for_a_round_takes_turns_in_team_order():
+    game = Game(id="game-1", room_code="ABCD")
+    for number in (1, 2, 3):
+        game.add_team(Team(id=f"team-{number}", name=f"Team {number}", color=f"#{number}"))
+
+    assert [game.acting_team_for(n).id for n in range(4)] == [
+        "team-1",
+        "team-2",
+        "team-3",
+        "team-1",
+    ]
+
+
+def test_game_acting_team_for_needs_teams():
+    with pytest.raises(ValueError, match="No teams"):
+        Game(id="game-1", room_code="ABCD").acting_team_for(0)
+
+
 def test_game_validate_room_code():
     """Test room code validation."""
     # Valid room codes

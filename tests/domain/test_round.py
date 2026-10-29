@@ -128,6 +128,17 @@ def test_round_set_prompt_winner(sample_script):
     round_obj.set_prompt_winner("team-2")
 
     assert round_obj.prompt_winner_team_id == "team-2"
+    assert round_obj.guessing_closed is True
+
+
+def test_closing_guessing_with_no_winner():
+    round_obj = Round(id="round-0", round_number=0, acting_team_id="team-1")
+    assert round_obj.guessing_closed is False
+
+    round_obj.close_guessing()
+
+    assert round_obj.guessing_closed is True
+    assert round_obj.prompt_winner_team_id is None
 
 
 def test_round_set_personality_guess(sample_script):

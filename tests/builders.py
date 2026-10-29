@@ -141,18 +141,42 @@ def tied_after_last_round(*, rounds_per_team: int = 3, players_per_team: int = 2
     _assign_personalities(game, DEFAULT_PERSONALITIES)
     game.start()
     while not game.is_complete():
-        acting = game.get_acting_team()
-        guessing = next(team for team in game.teams if team.id != acting.id)
-        current = _play_round(game, f"{DEFAULT_PROMPT} {game.current_round}")
-        guess = Guess(team_id=guessing.id, guess=current.prompt, timestamp=0.0)
-        guess.accept()
-        current.add_guess(guess)
-        current.set_prompt_winner(guessing.id)
-        for team in (guessing, acting):
-            current.add_score_to_team(team.id, 1)
-            team.add_score(1)
-        game.next_round()
+        _play_round_both_teams_score(game)
     return game
+
+
+def in_last_round_guessing_phase(
+    *, rounds_per_team: int = 1, guesses: Sequence[str] = DEFAULT_GUESSES
+) -> Game:
+    """The last regular round in progress: team 2 is acting and team 1 has shouted ``guesses``.
+
+    Every earlier round played out as in ``tied_after_last_round``.
+    """
+    game = lobby_with_two_teams()
+    game.settings = GameSettings(rounds_per_team=rounds_per_team)
+    _assign_personalities(game, DEFAULT_PERSONALITIES)
+    game.start()
+    while game.current_round < game.get_total_rounds() - 1:
+        _play_round_both_teams_score(game)
+    current = _play_round(game, DEFAULT_PROMPT)
+    for index, text in enumerate(guesses):
+        current.add_guess(Guess(team_id=game.teams[0].id, guess=text, timestamp=float(index)))
+    return game
+
+
+def _play_round_both_teams_score(game: Game) -> None:
+    """Play the current round: the other team guesses the prompt and both score a point."""
+    acting = game.get_acting_team()
+    guessing = next(team for team in game.teams if team.id != acting.id)
+    current = _play_round(game, f"{DEFAULT_PROMPT} {game.current_round}")
+    guess = Guess(team_id=guessing.id, guess=current.prompt, timestamp=0.0)
+    guess.accept()
+    current.add_guess(guess)
+    current.set_prompt_winner(guessing.id)
+    for team in (guessing, acting):
+        current.add_score_to_team(team.id, 1)
+        team.add_score(1)
+    game.next_round()
 
 
 def _assign_personalities(game: Game, personalities: Sequence[str]) -> None:

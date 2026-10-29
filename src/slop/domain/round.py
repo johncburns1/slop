@@ -55,6 +55,7 @@ class Round:
     role_assignments: dict[str, int] = field(default_factory=dict)  # player_id -> role index
     prompt_guesses: list[Guess] = field(default_factory=list)
     prompt_winner_team_id: str | None = None
+    guessing_closed: bool = False  # the acting team has picked a winner, or said nobody
     personality_guess: str | None = None
     personality_correct: bool = False
     round_score: dict[str, int] = field(default_factory=dict)  # team_id -> points
@@ -65,8 +66,13 @@ class Round:
         self.prompt_guesses.append(guess)
 
     def set_prompt_winner(self, team_id: str) -> None:
-        """Set which team won by guessing the prompt correctly."""
+        """Set which team won by guessing the prompt correctly, closing guessing."""
         self.prompt_winner_team_id = team_id
+        self.guessing_closed = True
+
+    def close_guessing(self) -> None:
+        """Close guessing with nobody having guessed the prompt."""
+        self.guessing_closed = True
 
     def set_personality_guess(self, personality_id: str) -> None:
         """Set the acting team's guess for the AI personality."""

@@ -18,9 +18,11 @@ from slop.domain.events import (
     GameEvent,
     GuessAccepted,
     GuessSubmitted,
+    NoGuessAccepted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
     PersonalityPicked,
+    PersonalityRevealed,
     PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
@@ -171,14 +173,23 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             )
         case GuessAccepted():
             current = _round(game, event.round_number)
-            team_guesses = [g for g in current.prompt_guesses if g.team_id == event.team_id]
-            if team_guesses:
-                team_guesses[-1].accept()
             current.set_prompt_winner(event.team_id)
+            if event.guess_index is not None:
+                _accepted_guess(current, event.guess_index, event.team_id).accept()
+            else:
+                team_guesses = [g for g in current.prompt_guesses if g.team_id == event.team_id]
+                if team_guesses:
+                    team_guesses[-1].accept()
+        case NoGuessAccepted():
+            _round(game, event.round_number).close_guessing()
         case PersonalityGuessSubmitted():
             current = _round(game, event.round_number)
             current.set_personality_guess(event.personality_guess)
             current.check_personality_guess()
+        case PersonalityRevealed():
+            # Notification only: the guess and its result are in PersonalityGuessSubmitted.
+            _team(game, event.team_id)
+            _round(game, event.round_number)
         case ScoresUpdated():
             current = _round(game, event.round_number)
             for team_id, points in event.score_changes.items():
@@ -230,6 +241,15 @@ def _round(game: Game, round_number: int) -> Round:
         if candidate.round_number == round_number:
             return candidate
     raise ProjectionError(f"Round {round_number} has not started")
+
+
+def _accepted_guess(current: Round, guess_index: int, team_id: str) -> Guess:
+    if not 0 <= guess_index < len(current.prompt_guesses):
+        raise ProjectionError(f"Round {current.round_number} has no guess {guess_index}")
+    guess = current.prompt_guesses[guess_index]
+    if guess.team_id != team_id:
+        raise ProjectionError(f"Guess {guess_index} is not from team {team_id}")
+    return guess
 
 
 def _set_scores(game: Game, scores: dict[str, int]) -> None:
