@@ -2,129 +2,25 @@
 
 [![CI](https://github.com/johncburns1/slop/actions/workflows/ci.yml/badge.svg)](https://github.com/johncburns1/slop/actions/workflows/ci.yml)
 
-An AI-powered party game where teams perform outrageous AI-generated scripts based on simple prompts. Players compete by acting out scenes and guessing each other's original prompts in a fast-paced, multiplayer experience.
+A party game for groups in the same room. Your team writes a six-word prompt, an AI turns it into a ridiculous script, and you perform it while everyone else races to guess what you typed. Everyone plays from their phone.
 
-**Key Features:**
+**Status:** early development. The domain model and port interfaces are in place. The server and frontend aren't built yet.
 
-- Multi-device real-time synchronization (everyone on their phones)
-- AI-generated scripts with personality variants (dramatic, absurdist, noir, etc.)
-- Team-based gameplay with strategic AI personality assignments
-- Dual scoring system (guessing + acting incentives)
-- Room-based sessions with simple join codes
+## Docs
 
----
+- [PRODUCT.md](PRODUCT.md): what we're building and why
+- [ARCHITECTURE.md](ARCHITECTURE.md): how the system is put together
 
-## Documentation
+## Development
 
-- **[PRODUCT.md](PRODUCT.md)** - Product vision, features, user stories, success metrics
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - High-level system design, components, design decisions
-- **[CLAUDE.md](CLAUDE.md)** - Project-specific guidance for Claude Code
-
----
-
-## Technology Stack
-
-### Backend
-
-- **Python 3.13** - Language
-- **uv** - Fast, modern package management
-- **FastAPI** - Async web framework with OpenAPI docs
-- **python-socketio** - WebSocket server (Socket.IO protocol)
-- **SQLite** - File-based database for game state persistence
-- **ruff** - Linting and formatting
-- **mypy** - Static type checking (strict mode)
-- **pytest** - Testing framework with async support
-
-### Frontend (Planned)
-
-- **React** - PWA framework
-- **Vite** - Build tool
-- **socket.io-client** - WebSocket client
-- **Tailwind CSS** - Styling
-
-### Infrastructure
-
-- **Fly.io** - Hosting (free tier: 3 VMs, persistent volumes)
-- **LLM Gateway** - OpenAI (GPT-4o) or Anthropic (Claude Sonnet)
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/) installed
-
-### Setup
+Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Clone repository
-git clone <repo-url>
-cd slop
-
-# Install dependencies
-uv sync
-
-# Run development server
-uv run slop serve
-
-# Run tests
-uv run pytest
-
-# Type check
-uv run mypy src
-
-# Lint and format
-uv run ruff check --fix
-uv run ruff format
+uv sync --all-extras   # install
+uv run pytest          # test
+uv run mypy src        # type check
+uv run ruff check      # lint
+uv run ruff format     # format
 ```
 
----
-
-## Development Workflow
-
-```bash
-# Run development server with auto-reload
-uv run slop serve --reload
-
-# Run tests with coverage
-uv run pytest --cov=slop --cov-report=term-missing
-
-# Type checking
-uv run mypy src
-
-# Linting
-uv run ruff check src
-
-# Formatting
-uv run ruff format src
-```
-
----
-
-## Project Structure
-
-```text
-src/slop/
-├── domain/          # Pure business logic (Game, Team, Player, Round, Script)
-├── ports/           # Interfaces for external systems
-│   ├── llm.py      # LLM provider interface
-│   ├── realtime.py # WebSocket/real-time communication interface
-│   └── storage.py  # Game state persistence interface
-├── adapters/        # Concrete implementations
-│   ├── llm/        # LLM provider integrations (OpenAI, Anthropic)
-│   ├── websocket/  # WebSocket server (Socket.io)
-│   └── storage/    # SQLite storage
-├── application/     # Use cases and application services
-│   ├── game_management.py    # Create/join/manage games
-│   ├── script_generation.py  # Generate scripts with AI
-│   └── scoring.py            # Handle scoring logic
-├── api/             # REST and WebSocket endpoints
-├── __init__.py      # Package initialization
-└── __main__.py      # Server entry point
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed component design.
-
----
+These are the same checks CI runs.
