@@ -30,3 +30,6 @@ dmypy.json
 
 # Validation output
 .validation/
+
+# Local server data
+.slop-data/
