@@ -1,11 +1,16 @@
 """Tests for the HTTP app."""
 
+import asyncio
 import json
+import urllib.request
 from typing import Any
 
 from slop import __version__
+from slop.adapters.websocket import SocketIORealtime
 from slop.api import create_app
 from slop.api.schemas import HealthResponse
+from tests.adapters.websocket.contract import make_game_created, make_script_generated
+from tests.socketio_clients import Listener, serving
 
 
 async def get(path: str) -> tuple[int, dict[str, Any]]:
@@ -54,3 +59,33 @@ def test_health_declares_typed_response_model() -> None:
         "$ref": "#/components/schemas/HealthResponse"
     }
     assert HealthResponse.model_validate({"status": "ok", "version": "1"}).status == "ok"
+
+
+def fetch_json(url: str) -> Any:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        return json.loads(response.read())
+
+
+async def test_served_app_delivers_realtime_events_over_socketio() -> None:
+    """Two real clients join one room on a running server: both get the
+    broadcast, and only the target gets the direct send. /health still works."""
+    realtime = SocketIORealtime()
+    async with serving(create_app(realtime)) as url:
+        alice, bob = Listener(), Listener()
+        await alice.connect(url)
+        await bob.connect(url)
+        try:
+            await realtime.join_room(alice.sid, "ABCD")
+            await realtime.join_room(bob.sid, "ABCD")
+            game_created, script = make_game_created(), make_script_generated()
+
+            await realtime.broadcast_to_room("ABCD", game_created)
+            await realtime.send_to_player(alice.sid, script)
+
+            assert await alice.received(realtime) == [game_created, script]
+            assert await bob.received(realtime) == [game_created]
+            health = await asyncio.to_thread(fetch_json, f"{url}/health")
+            assert health == {"status": "ok", "version": __version__}
+        finally:
+            await alice.client.disconnect()
+            await bob.client.disconnect()
