@@ -9,6 +9,7 @@ from tests.builders import (
     lobby_with_two_teams,
     lobby_without_teams,
     personalities_assigned,
+    scored_after_last_round,
     selecting_personalities,
     tied_after_last_round,
     waiting_for_prompt,
@@ -146,6 +147,20 @@ def test_in_last_round_guessing_phase():
     assert [g.team_id for g in current.prompt_guesses] == ["team-1", "team-1"]
     assert not current.guessing_closed
     assert [team.score for team in game.teams] == [3, 3]
+
+
+@pytest.mark.parametrize("scores", [(4, 2), (2, 5, 5)])
+def test_scored_after_last_round(scores):
+    game = scored_after_last_round(scores=scores)
+
+    assert game.status == GameStatus.PLAYING
+    assert game.is_complete()
+    assert_players_match_teams(game)
+    assert len(game.rounds) == game.get_total_rounds() == len(scores)
+    assert all(team.assigned_personality for team in game.teams)
+    assert tuple(team.score for team in game.teams) == scores
+    for team in game.teams:
+        assert team.score == sum(r.round_score.get(team.id, 0) for r in game.rounds)
 
 
 def test_waiting_for_prompt():

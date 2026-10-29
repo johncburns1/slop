@@ -16,6 +16,7 @@ from slop.domain.events import (
     GameCompleted,
     GameCreated,
     GameEvent,
+    GameRestarted,
     GuessAccepted,
     GuessSubmitted,
     NoGuessAccepted,
@@ -37,8 +38,9 @@ from slop.domain.events import (
     ScriptReady,
     TeamDisbanded,
     TeamFormed,
+    TiebreakerStarted,
 )
-from slop.domain.game import ContentTone, Game, GameSettings, GameStatus
+from slop.domain.game import ContentTone, Game, GameSettings, GameStatus, Tiebreaker
 from slop.domain.player import Player
 from slop.domain.round import Guess, Round
 from slop.domain.script import Role, Script
@@ -199,9 +201,26 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             _round(game, event.round_number)
             _set_scores(game, event.final_scores)
             game.current_round = event.round_number + 1
+        case TiebreakerStarted():
+            for team_id in event.team_ids:
+                _team(game, team_id)
+            game.tiebreaker = Tiebreaker(
+                cycle=event.cycle, team_ids=list(event.team_ids), first_round=event.first_round
+            )
         case GameCompleted():
             _set_scores(game, event.final_scores)
             game.finish()
+        case GameRestarted():
+            if game.status != GameStatus.FINISHED:
+                raise ProjectionError(f"Game {game.id} has not finished")
+            for team in game.teams:
+                team.score = 0
+                team.assigned_personality = None
+                team.personality_assigned_by = None
+            game.rounds = []
+            game.current_round = 0
+            game.tiebreaker = None
+            game.set_personality_selection_phase()
         case _:
             raise ProjectionError(f"No projection for event type {event.event_type}")
     return game

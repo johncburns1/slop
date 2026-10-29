@@ -55,6 +55,19 @@ class GameSettings:
 
 
 @dataclass
+class Tiebreaker:
+    """The tiebreaker cycle in play: each team in ``team_ids`` acts once, in order.
+
+    The cycle's rounds are numbered from ``first_round``, straight after the
+    rounds before it.
+    """
+
+    cycle: int  # 1 for the first tiebreaker cycle
+    team_ids: list[str]
+    first_round: int
+
+
+@dataclass
 class Game:
     """Represents a complete game session.
 
@@ -70,6 +83,7 @@ class Game:
     players: list[Player] = field(default_factory=list)
     rounds: list[Round] = field(default_factory=list)
     current_round: int = 0
+    tiebreaker: Tiebreaker | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:

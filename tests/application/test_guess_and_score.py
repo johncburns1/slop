@@ -17,8 +17,11 @@ from slop.application.guess_and_score import (
     pick_winning_guess,
     submit_guess,
 )
+from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
     Game,
+    GameCompleted,
+    GameStatus,
     GuessAccepted,
     GuessSubmitted,
     NoGuessAccepted,
@@ -350,7 +353,7 @@ async def test_the_reveal_can_be_kept_to_the_acting_team(
     assert realtime.who_received(RoundCompleted) == ALL_SOCKETS
 
 
-async def test_the_last_regular_round_completes_without_starting_another(
+async def test_the_last_regular_round_hands_off_to_the_end_of_the_game(
     deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
 ):
     game = await start(deps, realtime, in_last_round_guessing_phase(rounds_per_team=1))
@@ -360,13 +363,51 @@ async def test_the_last_regular_round_completes_without_starting_another(
     game = await guess_personality(deps, GuessPersonality(game.id, "player-4", "melodrama"))
 
     events = await storage.get_events(game.id)
-    assert [type(e) for e in events][-2:] == [ScoresUpdated, RoundCompleted]
+    assert [type(e) for e in events][-3:] == [ScoresUpdated, RoundCompleted, GameCompleted]
     assert realtime.who_received(RoundStarted) == frozenset()
-    completed = events[-1]
+    completed, ended = events[-2:]
     assert isinstance(completed, RoundCompleted)
     assert completed.final_scores == {"team-1": 2, "team-2": 3}
-    assert game.is_complete()
+    assert isinstance(ended, GameCompleted)
+    assert (ended.final_scores, ended.winner_team_id) == (completed.final_scores, "team-2")
+    assert game.status == GameStatus.FINISHED
     assert len(game.rounds) == 2
+    assert await load_game(deps, game.id) == game
+
+
+async def test_a_tie_after_the_last_round_is_played_off_round_by_round(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    game = await start(deps, realtime, in_last_round_guessing_phase(rounds_per_team=1))
+    # Nobody gets team 2's prompt and it misses its personality: still 1-1.
+    await pick_winning_guess(deps, PickWinningGuess(game.id, "player-3", None))
+    game = await guess_personality(deps, GuessPersonality(game.id, "player-4", "noir"))
+
+    assert game.tiebreaker is not None
+    assert (game.tiebreaker.cycle, game.tiebreaker.team_ids) == (1, ["team-1", "team-2"])
+    assert (game.current_round, game.rounds[-1].acting_team_id) == (2, "team-1")
+
+    # Team 1 acts first in the tiebreaker: team 2 gets it, and team 1 names noir.
+    await submit_prompt(deps, SubmitPrompt(game.id, "player-1", "Cat steals the moon"))
+    await submit_guess(deps, SubmitGuess(game.id, "player-3", "A cat heist"))
+    await pick_winning_guess(deps, PickWinningGuess(game.id, "player-1", 0))
+    game = await guess_personality(deps, GuessPersonality(game.id, "player-2", "noir"))
+    assert (game.status, game.current_round, game.rounds[-1].acting_team_id) == (
+        GameStatus.PLAYING,
+        3,
+        "team-2",
+    )
+
+    # Team 2 acts next and scores nothing, so team 1 wins 3-2.
+    await submit_prompt(deps, SubmitPrompt(game.id, "player-3", "Dog runs for mayor"))
+    await pick_winning_guess(deps, PickWinningGuess(game.id, "player-3", None))
+    game = await guess_personality(deps, GuessPersonality(game.id, "player-4", "noir"))
+
+    ended = (await storage.get_events(game.id))[-1]
+    assert isinstance(ended, GameCompleted)
+    assert (ended.final_scores, ended.winner_team_id) == ({"team-1": 3, "team-2": 2}, "team-1")
+    assert game.status == GameStatus.FINISHED
+    assert realtime.broadcasts_to(game.room_code)[-1] == ended
 
 
 @pytest.mark.parametrize(

@@ -230,9 +230,32 @@ class RoundCompleted(GameEvent):
     final_scores: dict[str, int]  # team_id -> total score
 
 
+class TiebreakerStarted(GameEvent):
+    """Emitted when teams tied for first start a tiebreaker cycle.
+
+    Each team in ``team_ids`` acts once, in this order, in the rounds
+    numbered from ``first_round``.
+    """
+
+    event_type: str = "TiebreakerStarted"
+    cycle: int
+    team_ids: list[str]
+    first_round: int
+
+
 class GameCompleted(GameEvent):
     """Emitted when the game ends."""
 
     event_type: str = "GameCompleted"
     final_scores: dict[str, int]  # team_id -> final score
     winner_team_id: str | None
+
+
+class GameRestarted(GameEvent):
+    """Emitted when the group plays again with the same players and teams.
+
+    Scores, rounds, tiebreakers, and personalities are cleared, and the new
+    game opens with personality selection.
+    """
+
+    event_type: str = "GameRestarted"
