@@ -16,6 +16,7 @@ TEAM_SPECS: tuple[tuple[str, str, str], ...] = (
     ("team-3", "Green Team", "#00FF00"),
 )
 DEFAULT_PERSONALITIES = ("noir", "melodrama")
+ALL_PERSONALITIES = (*DEFAULT_PERSONALITIES, "absurdist")
 DEFAULT_PROMPT = "Superhero saves city from angry aliens"
 DEFAULT_GUESSES = ("Aliens invade a city", "Hero fights space monsters")
 
@@ -177,6 +178,28 @@ def _play_round_both_teams_score(game: Game) -> None:
         current.add_score_to_team(team.id, 1)
         team.add_score(1)
     game.next_round()
+
+
+def scored_after_last_round(
+    *, scores: Sequence[int], rounds_per_team: int = 1, players_per_team: int = 2
+) -> Game:
+    """Every round played, with team ``i`` on ``scores[i]`` points (2 or 3 teams).
+
+    Nobody guesses in the earlier rounds; every team's points come from the
+    last round. The game is still ``PLAYING``: deciding what comes next is
+    up to the game-end rules.
+    """
+    game = _lobby(room_code="ABCD", num_teams=len(scores), players_per_team=players_per_team)
+    game.settings = GameSettings(rounds_per_team=rounds_per_team)
+    _assign_personalities(game, ALL_PERSONALITIES[: len(scores)])
+    game.start()
+    while not game.is_complete():
+        current = _play_round(game, f"{DEFAULT_PROMPT} {game.current_round}")
+        game.next_round()
+    for team, points in zip(game.teams, scores, strict=True):
+        current.add_score_to_team(team.id, points)
+        team.add_score(points)
+    return game
 
 
 def _assign_personalities(game: Game, personalities: Sequence[str]) -> None:

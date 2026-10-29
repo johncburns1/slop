@@ -6,6 +6,7 @@ from slop.domain import (
     ContentTone,
     GameCompleted,
     GameEvent,
+    GameRestarted,
     GameStatus,
     Guess,
     GuessAccepted,
@@ -20,6 +21,8 @@ from slop.domain import (
     RoleAssigned,
     RoundCompleted,
     TeamDisbanded,
+    Tiebreaker,
+    TiebreakerStarted,
 )
 from slop.domain.projection import ProjectionError, apply_event, replay
 from tests.event_logs import (
@@ -240,6 +243,59 @@ def test_game_completed_finishes_the_game_with_final_scores():
 
     assert game.status == GameStatus.FINISHED
     assert [t.score for t in game.teams] == [4, 3]
+
+
+def test_tiebreaker_started_records_the_cycle_and_who_acts():
+    events = [
+        *lobby_events(),
+        TiebreakerStarted(game_id=GAME_ID, cycle=1, team_ids=["team-2", "team-1"], first_round=6),
+    ]
+
+    game = replay(events)
+
+    assert game.tiebreaker == Tiebreaker(cycle=1, team_ids=["team-2", "team-1"], first_round=6)
+
+
+def test_a_tiebreaker_for_an_unknown_team_is_rejected():
+    events = [
+        *lobby_events(),
+        TiebreakerStarted(game_id=GAME_ID, cycle=1, team_ids=["team-9"], first_round=6),
+    ]
+
+    with pytest.raises(ProjectionError, match="team-9"):
+        replay(events)
+
+
+def test_game_restarted_keeps_players_and_teams_and_clears_the_last_game():
+    events = [
+        *lobby_events(),
+        *round_zero_events(),
+        *round_zero_scored_events(),
+        TiebreakerStarted(game_id=GAME_ID, cycle=1, team_ids=["team-1", "team-2"], first_round=1),
+        GameCompleted(
+            game_id=GAME_ID, final_scores={"team-1": 2, "team-2": 1}, winner_team_id="team-1"
+        ),
+        GameRestarted(game_id=GAME_ID),
+    ]
+
+    game = replay(events)
+
+    assert game.status == GameStatus.PERSONALITY_SELECTION
+    assert [p.id for p in game.players] == ["player-1", "player-2", "player-3", "player-4"]
+    assert [(t.id, t.player_ids) for t in game.teams] == [
+        ("team-1", ["player-1", "player-2"]),
+        ("team-2", ["player-3", "player-4"]),
+    ]
+    assert [(t.score, t.assigned_personality, t.personality_assigned_by) for t in game.teams] == [
+        (0, None, None),
+        (0, None, None),
+    ]
+    assert (game.rounds, game.current_round, game.tiebreaker) == ([], 0, None)
+
+
+def test_only_a_finished_game_can_restart():
+    with pytest.raises(ProjectionError, match="not finished"):
+        replay([*lobby_events(), GameRestarted(game_id=GAME_ID)])
 
 
 def test_apply_event_does_not_mutate_its_input():
