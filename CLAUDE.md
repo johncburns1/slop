@@ -27,4 +27,5 @@ The code uses hexagonal architecture. Dependencies point inward:
 - mypy runs in strict mode, so every function needs type hints.
 - Domain models are dataclasses. Events are Pydantic models.
 - Write tests first. Tests mirror the source layout under `tests/`.
+- Follow `CONTRIBUTING.md` for PR rules, priority labels, and workstream states.
 - For general engineering, Python, and backend practices, see the `engineering-standards`, `python-engineering`, and `backend-development` skills.
