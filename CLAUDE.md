@@ -22,6 +22,7 @@ The code uses hexagonal architecture. Dependencies point inward:
 - `ports/` defines `Protocol` interfaces. `adapters/` implements them. The domain and application code depend only on ports, never on a concrete adapter.
 - Game state is event-sourced. A state change happens by emitting a domain event (`domain/events.py`), not by mutating storage directly.
 - Persistence models stay inside adapters. Never store domain objects directly.
+- Every use case follows the load → check → emit → `commit` flow described in the `slop.application` package docstring.
 
 ## Conventions
 
