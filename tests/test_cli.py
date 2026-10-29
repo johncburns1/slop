@@ -14,12 +14,22 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import socketio
 
-from slop.cli import DEFAULT_DATA_DIR, DEFAULT_HOST, DEFAULT_PORT, ServeSettings, parse_args
+from slop.adapters.storage import SQLiteStorage
+from slop.cli import (
+    DATABASE_FILE,
+    DEFAULT_DATA_DIR,
+    DEFAULT_HOST,
+    DEFAULT_LLM,
+    DEFAULT_PORT,
+    ServeSettings,
+    parse_args,
+)
 
 
 def test_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR"):
+    for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR", "SLOP_LLM"):
         monkeypatch.delenv(name, raising=False)
 
     assert parse_args(["serve"]) == ServeSettings(
@@ -54,6 +64,29 @@ def test_serve_rejects_non_integer_port_env_var(monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(SystemExit):
         parse_args(["serve"])
+
+
+def test_serve_uses_the_stand_in_llm_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLOP_LLM", raising=False)
+
+    assert parse_args(["serve"]).llm == DEFAULT_LLM == "stand-in"
+
+
+def test_serve_reads_llm_from_flag_or_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_LLM", "stand-in")
+
+    assert parse_args(["serve"]).llm == "stand-in"
+    assert parse_args(["serve", "--llm", "stand-in"]).llm == "stand-in"
+
+
+def test_serve_rejects_unknown_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_LLM", "no-such-llm")
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve"])
+    monkeypatch.delenv("SLOP_LLM")
+    with pytest.raises(SystemExit):
+        parse_args(["serve", "--llm", "no-such-llm"])
 
 
 def free_ports(count: int) -> list[int]:
@@ -111,3 +144,25 @@ def test_two_servers_run_side_by_side(tmp_path: Path) -> None:
         assert get_health(port_b)[0] == 200
         assert data_a.is_dir()
         assert data_b.is_dir()
+
+
+async def test_served_games_are_played_over_socketio_and_stored_in_the_data_dir(
+    tmp_path: Path,
+) -> None:
+    (port,) = free_ports(1)
+    client = socketio.AsyncClient()
+
+    with running_server(port, tmp_path):
+        await client.connect(f"http://127.0.0.1:{port}", transports=["websocket"], wait_timeout=5)
+        try:
+            created = await client.call("create_game", {"content_tone": "family"}, timeout=5)
+            joined = await client.call(
+                "join_game", {"room_code": created["room_code"], "player_name": "Alice"}, timeout=5
+            )
+        finally:
+            await client.disconnect()
+
+    game = await SQLiteStorage(tmp_path / DATABASE_FILE).get_snapshot(created["game_id"])
+    assert game is not None
+    assert game.room_code == created["room_code"]
+    assert [(p.id, p.name) for p in game.players] == [(joined["player_id"], "Alice")]

@@ -2,7 +2,8 @@
 
 `serving(app)` starts uvicorn in-process on a free port. `Listener` is a
 Socket.IO client that records every game event it receives, parsed back into
-domain events so tests can compare them with what was sent.
+domain events so tests can compare them with what was sent, and keeps the
+server's `error` replies apart in `errors`.
 """
 
 import asyncio
@@ -17,6 +18,7 @@ from slop.adapters.websocket import SocketIORealtime
 from slop.domain.events import GameEvent
 
 FLUSH = "test.flush"
+ERROR = "error"
 
 
 def _event_classes() -> dict[str, type[GameEvent]]:
@@ -56,6 +58,7 @@ class Listener:
         self.client = socketio.AsyncClient()
         self.events: list[GameEvent] = []
         self.raw: list[tuple[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
         self._flushed = asyncio.Event()
         self.client.on("*", self._record)
         self.client.on(FLUSH, self._flushed.set)
@@ -82,4 +85,7 @@ class Listener:
 
     async def _record(self, event_type: str, data: Any) -> None:
         self.raw.append((event_type, data))
+        if event_type == ERROR:
+            self.errors.append(data)
+            return
         self.events.append(EVENT_CLASSES[event_type].model_validate(data))
