@@ -6,7 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.12.5",
+    "starlette>=1.10.0",
+    "uvicorn>=0.54.0",
 ]
+
+[project.scripts]
+slop = "slop.cli:main"
 
 [project.optional-dependencies]
 dev = [

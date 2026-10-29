@@ -12,7 +12,7 @@ uv run mypy src
 uv run ruff check --fix && uv run ruff format
 ```
 
-CI runs `uv run scripts/validate.py`, and a change isn't done until it passes. There is no server entry point yet.
+CI runs `uv run scripts/validate.py`, and a change isn't done until it passes. Start the server with `uv run slop serve` (`--port`/`--data-dir`, or `SLOP_PORT`/`SLOP_DATA_DIR`).
 
 ## Architecture rules
 

@@ -23,6 +23,7 @@ uv run pytest          # test
 uv run mypy src        # type check
 uv run ruff check      # lint
 uv run ruff format     # format
+uv run slop serve      # run the server (GET /health); --port/--data-dir or SLOP_PORT/SLOP_DATA_DIR
 ```
 
 `scripts/validate.py` prints a summary, writes `.validation/summary.json`, and exits non-zero if any check fails.
