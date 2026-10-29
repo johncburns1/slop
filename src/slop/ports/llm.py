@@ -10,6 +10,10 @@ from slop.domain.ai_personality import AIPersonality
 from slop.domain.script import Script
 
 
+class LLMError(Exception):
+    """Script generation failed: the provider errored or returned unusable output."""
+
+
 class LLMPort(Protocol):
     """Interface for LLM providers that generate game scripts.
 

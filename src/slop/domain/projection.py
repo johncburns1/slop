@@ -29,6 +29,8 @@ from slop.domain.events import (
     RoundStarted,
     ScoresUpdated,
     ScriptGenerated,
+    ScriptGenerationFailed,
+    ScriptReady,
     TeamFormed,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus
@@ -135,6 +137,9 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
                 word_count=event.word_count,
                 generated_at=event.timestamp,
             )
+        case ScriptGenerationFailed() | ScriptReady():
+            # Notifications only: the round's state is unchanged.
+            _round(game, event.round_number)
         case RoleAssigned():
             current = _round(game, event.round_number)
             role_names = [role.name for role in current.script.roles] if current.script else []

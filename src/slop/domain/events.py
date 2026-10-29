@@ -109,6 +109,28 @@ class ScriptGenerated(GameEvent):
     estimated_duration: int
 
 
+class ScriptGenerationFailed(GameEvent):
+    """Emitted when no script could be generated, so the acting team can try again.
+
+    The round is still waiting for a prompt. Only the acting team sees this.
+    """
+
+    event_type: str = "ScriptGenerationFailed"
+    round_number: int
+    team_id: str
+
+
+class ScriptReady(GameEvent):
+    """Emitted to the whole room when the acting team has its script.
+
+    Carries nothing that would give the prompt, script, or personality away.
+    """
+
+    event_type: str = "ScriptReady"
+    round_number: int
+    acting_team_id: str
+
+
 class RoleAssigned(GameEvent):
     """Emitted when a role is assigned to a player."""
 

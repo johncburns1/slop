@@ -21,6 +21,8 @@ from slop.domain.events import (
     RoundStarted,
     ScoresUpdated,
     ScriptGenerated,
+    ScriptGenerationFailed,
+    ScriptReady,
     TeamFormed,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus
@@ -57,6 +59,8 @@ __all__ = [
     "ScoresUpdated",
     "Script",
     "ScriptGenerated",
+    "ScriptGenerationFailed",
+    "ScriptReady",
     "Team",
     "TeamFormed",
 ]

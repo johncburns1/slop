@@ -2,7 +2,8 @@
 
 A use case is an async function ``use_case(deps, command) -> Game`` in its own
 module (see ``create_game`` for the model), where ``deps`` is an
-``engine.GameDeps`` holding the ports, a clock, and an id generator, and
+``engine.GameDeps`` holding the ports (storage, realtime, LLM), a clock, and an id
+generator, and
 ``command`` is a frozen dataclass. It:
 
 1. Loads the game with ``engine.load_game`` or ``engine.find_game``.
