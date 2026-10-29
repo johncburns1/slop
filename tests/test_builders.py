@@ -8,6 +8,7 @@ from tests.builders import (
     lobby_with_two_teams,
     lobby_without_teams,
     personalities_assigned,
+    selecting_personalities,
     tied_after_last_round,
     waiting_for_prompt,
 )
@@ -142,3 +143,15 @@ def test_waiting_for_prompt():
     assert (current.round_number, current.acting_team_id) == (0, "team-1")
     assert (current.prompt, current.script, current.role_assignments) == (None, None, {})
     assert game.get_team("team-1").assigned_personality == "noir"
+
+
+@pytest.mark.parametrize("num_teams", [2, 3])
+def test_selecting_personalities(num_teams):
+    game = selecting_personalities(num_teams=num_teams)
+
+    assert game.status == GameStatus.PERSONALITY_SELECTION
+    assert len(game.teams) == num_teams
+    assert len(game.players) == 2 * num_teams
+    assert_players_match_teams(game)
+    assert all(team.assigned_personality is None for team in game.teams)
+    assert game.rounds == []

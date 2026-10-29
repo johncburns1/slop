@@ -20,6 +20,7 @@ from slop.domain.events import (
     GuessSubmitted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
+    PersonalityPicked,
     PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
@@ -117,6 +118,9 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             _team(game, event.team_id).assign_personality(
                 event.personality_id, assigned_by=event.assigned_by_team_id
             )
+        case PersonalityPicked():
+            # Notification only: the pick itself is in PersonalityAssigned.
+            _team(game, event.picked_by_team_id)
         case RoundStarted():
             game.rounds.append(
                 Round(

@@ -37,6 +37,35 @@ PERSONALITIES: dict[str, AIPersonality] = {
                 "things calmly, logic bends, and nothing is explained."
             ),
         ),
+        AIPersonality(
+            id="nature_documentary",
+            name="Nature Documentary",
+            description="Hushed wildlife narration of ordinary human behaviour",
+            system_prompt=(
+                "Write a short scene as a nature documentary. A reverent narrator "
+                "describes the characters as wild animals in their habitat while "
+                "they go about their business."
+            ),
+        ),
+        AIPersonality(
+            id="shakespearean",
+            name="Shakespearean",
+            description="Iambic grandeur, asides, and tragic misunderstandings",
+            system_prompt=(
+                "Write a short scene as Shakespeare would. Thee and thou, dramatic "
+                "asides to the audience, florid insults, and fate looming over all."
+            ),
+        ),
+        AIPersonality(
+            id="corporate_training",
+            name="Corporate Training Video",
+            description="Upbeat workplace training with forced smiles and buzzwords",
+            system_prompt=(
+                "Write a short scene as a corporate training video. Relentlessly "
+                "cheerful presenters, stilted role-play, buzzwords, and a lesson "
+                "about synergy stated at the end."
+            ),
+        ),
     )
 }
 
