@@ -1,7 +1,6 @@
 """Tests for rebuilding game state from events."""
 
 import pytest
-from slop.domain.projection import ProjectionError, apply_event, replay
 
 from slop.domain import (
     ContentTone,
@@ -17,6 +16,7 @@ from slop.domain import (
     RoleAssigned,
     RoundCompleted,
 )
+from slop.domain.projection import ProjectionError, apply_event, replay
 from tests.event_logs import (
     GAME_ID,
     T0,

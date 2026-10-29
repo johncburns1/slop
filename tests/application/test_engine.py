@@ -1,16 +1,19 @@
 """Tests for the shared use case flow."""
 
+from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
 from slop.adapters.clock import FixedClock
-from slop.adapters.storage import InMemoryStorage
+from slop.adapters.storage import InMemoryStorage, SQLiteStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps, Private, commit, find_game, load_game
 from slop.domain import GameEvent, PlayerLeft, PromptSubmitted, ScriptGenerated
 from slop.domain.errors import GameNotFoundError, GameRuleError
 from slop.domain.projection import ProjectionError, replay
+from slop.ports import StoragePort
 from tests.application.conftest import NOW
 from tests.event_logs import GAME_ID, full_game_events, lobby_events, round_zero_events
 from tests.evidence import write_evidence
@@ -33,9 +36,18 @@ async def commit_one_by_one(deps: GameDeps, events: list[GameEvent], clock: Fixe
         game = await commit(deps, game, [event])
 
 
+@pytest.fixture(params=["in_memory", "sqlite"])
+def any_storage(request: pytest.FixtureRequest, tmp_path: Path) -> StoragePort:
+    if request.param == "sqlite":
+        return SQLiteStorage(tmp_path / "slop.db")
+    return InMemoryStorage()
+
+
 async def test_replaying_saved_events_matches_the_snapshot_for_every_event_type(
-    deps: GameDeps, storage: InMemoryStorage, clock: FixedClock
+    any_storage: StoragePort, deps: GameDeps, clock: FixedClock
 ):
+    storage = any_storage
+    deps = replace(deps, storage=storage)
     events = full_game_events()
     assert {type(e) for e in events} == all_event_types(), "add new event types to event_logs"
 
@@ -45,9 +57,8 @@ async def test_replaying_saved_events_matches_the_snapshot_for_every_event_type(
     snapshot = await storage.get_snapshot(GAME_ID)
     assert [e.event_type for e in saved] == [e.event_type for e in events]
     assert replay(saved) == snapshot
-    write_evidence(
-        "replay-full-game/events.jsonl", "".join(e.model_dump_json() + "\n" for e in saved)
-    )
+    log = "".join(e.model_dump_json() + "\n" for e in saved)
+    write_evidence(f"replay-full-game/{type(storage).__name__}-events.jsonl", log)
 
 
 async def test_commit_stamps_events_from_the_clock_and_id_generator(
