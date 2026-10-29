@@ -8,6 +8,7 @@ These rules apply to humans and AI agents alike.
 - Target `main`. Don't stack PRs on other branches; rebase onto `main` if it moves.
 - If Verify needs more than about 3 bullets, split the PR.
 - Fill in the template in [.github/pull_request_template.md](.github/pull_request_template.md). CI checks must pass (see [README.md](README.md#development)).
+- In Verify, link the CI run whose job summary shows the validation report (`.validation/report.md`).
 
 ## Priority labels
 

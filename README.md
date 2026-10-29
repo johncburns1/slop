@@ -26,4 +26,4 @@ uv run ruff format     # format
 uv run slop serve      # run the server (GET /health); --port/--data-dir or SLOP_PORT/SLOP_DATA_DIR
 ```
 
-`scripts/validate.py` prints a summary, writes `.validation/summary.json`, and exits non-zero if any check fails.
+`scripts/validate.py` prints a summary, writes `.validation/summary.json` and a Markdown report `.validation/report.md`, and exits non-zero if any check fails. The report has a pass/fail table with durations, the output tail of any failing check, and an Evidence section: tests add evidence (event logs, player views) by writing files to `$SLOP_EVIDENCE_DIR` (`.validation/evidence/`), e.g. with `tests.evidence.write_evidence`. CI shows the report on the run's summary page and uploads `.validation/` as the `validation-summary` artifact.
