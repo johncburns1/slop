@@ -5,6 +5,7 @@ import pytest
 from slop.domain import GameStatus
 from tests.builders import (
     in_guessing_phase,
+    in_last_round_guessing_phase,
     lobby_with_two_teams,
     lobby_without_teams,
     personalities_assigned,
@@ -132,6 +133,19 @@ def test_tied_after_last_round_overrides():
     assert len(game.rounds) == 2
     assert game.is_complete()
     assert game.teams[0].score == game.teams[1].score
+
+
+def test_in_last_round_guessing_phase():
+    game = in_last_round_guessing_phase(rounds_per_team=2)
+
+    assert game.status == GameStatus.PLAYING
+    assert game.current_round == game.get_total_rounds() - 1 == 3
+    current = game.rounds[-1]
+    assert (current.round_number, current.acting_team_id) == (3, "team-2")
+    assert current.script is not None
+    assert [g.team_id for g in current.prompt_guesses] == ["team-1", "team-1"]
+    assert not current.guessing_closed
+    assert [team.score for team in game.teams] == [3, 3]
 
 
 def test_waiting_for_prompt():

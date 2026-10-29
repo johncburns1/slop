@@ -185,8 +185,15 @@ class Game:
         Raises:
             ValueError: If there are no teams
         """
+        return self.acting_team_for(self.current_round)
+
+    def acting_team_for(self, round_number: int) -> Team:
+        """Get the team that acts in ``round_number``, taking turns in team order.
+
+        Raises:
+            ValueError: If there are no teams
+        """
         if not self.teams:
             raise ValueError("No teams in game")
 
-        team_index = self.current_round % len(self.teams)
-        return self.teams[team_index]
+        return self.teams[round_number % len(self.teams)]

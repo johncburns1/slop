@@ -8,7 +8,10 @@ from slop.domain import (
     GameEvent,
     GameStatus,
     Guess,
+    GuessAccepted,
+    GuessSubmitted,
     PersonalityGuessSubmitted,
+    PersonalityRevealed,
     PersonalitySelectionStarted,
     PlayerJoinedTeam,
     PlayerLeft,
@@ -25,6 +28,7 @@ from tests.event_logs import (
     at,
     created,
     lobby_events,
+    round_one_unguessed_events,
     round_zero_events,
     round_zero_scored_events,
 )
@@ -142,10 +146,62 @@ def test_guessing_and_scoring_a_round():
         Guess(team_id="team-2", guess="Moon heist", timestamp=at(21).timestamp(), accepted=True),
     ]
     assert current.prompt_winner_team_id == "team-2"
+    assert current.guessing_closed is True
     assert current.personality_guess == "noir"
     assert current.personality_correct is True
     assert current.round_score == {"team-1": 2, "team-2": 1}
     assert [t.score for t in game.teams] == [2, 1]
+
+
+def team_2_guesses(*texts: str) -> list[GameEvent]:
+    return [
+        GuessSubmitted(
+            game_id=GAME_ID, timestamp=at(20 + i), round_number=0, team_id="team-2", guess=t
+        )
+        for i, t in enumerate(texts)
+    ]
+
+
+def test_accepting_a_guess_by_index_marks_that_guess():
+    accepted = GuessAccepted(game_id=GAME_ID, round_number=0, team_id="team-2", guess_index=0)
+    events = [*lobby_events(), *round_zero_events(), *team_2_guesses("Cat crime", "Moon heist")]
+
+    (current,) = replay([*events, accepted]).rounds
+
+    assert [g.accepted for g in current.prompt_guesses] == [True, False]
+    assert (current.prompt_winner_team_id, current.guessing_closed) == ("team-2", True)
+
+
+@pytest.mark.parametrize(
+    ("team_id", "guess_index", "message"),
+    [("team-2", 2, "no guess 2"), ("team-1", 0, "not from team team-1")],
+)
+def test_accepting_a_guess_that_does_not_match_is_rejected(team_id, guess_index, message):
+    accepted = GuessAccepted(
+        game_id=GAME_ID, round_number=0, team_id=team_id, guess_index=guess_index
+    )
+    events = [*lobby_events(), *round_zero_events(), *team_2_guesses("Cat crime", "Moon heist")]
+
+    with pytest.raises(ProjectionError, match=message):
+        replay([*events, accepted])
+
+
+def test_no_guess_accepted_closes_guessing_without_a_winner():
+    events = [*lobby_events(), *round_zero_events(), *round_one_unguessed_events()]
+
+    game = replay(events)
+
+    assert [(r.round_number, r.guessing_closed) for r in game.rounds] == [(0, False), (1, True)]
+    assert game.rounds[1].prompt_winner_team_id is None
+
+
+def test_personality_revealed_is_a_notification_only():
+    before = replay([*lobby_events(), *round_zero_events()])
+    revealed = PersonalityRevealed(
+        game_id=GAME_ID, round_number=0, team_id="team-1", personality_id="noir"
+    )
+
+    assert apply_event(before, revealed) == before
 
 
 def test_a_wrong_personality_guess_is_marked_incorrect():
