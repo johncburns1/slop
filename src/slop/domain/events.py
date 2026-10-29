@@ -93,6 +93,17 @@ class PersonalityAssigned(GameEvent):
     assigned_by_team_id: str
 
 
+class PersonalityPicked(GameEvent):
+    """Emitted to the whole room when a team has picked a personality for another team.
+
+    Carries nothing that would give the pick away; only the picking team gets
+    the ``PersonalityAssigned`` that names it.
+    """
+
+    event_type: str = "PersonalityPicked"
+    picked_by_team_id: str
+
+
 class RoundStarted(GameEvent):
     """Emitted when a new round begins."""
 

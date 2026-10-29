@@ -2,8 +2,8 @@
 
 Each builder returns a fresh, valid ``Game`` in one well-known state, built
 through the domain models' own methods. Ids are predictable: teams are
-``team-1`` and ``team-2``, and players are ``player-1`` upward, filling
-team 1 first.
+``team-1``, ``team-2`` (and ``team-3`` where a builder takes ``num_teams``), and
+players are ``player-1`` upward, filling team 1 first.
 """
 
 from collections.abc import Sequence
@@ -13,6 +13,7 @@ from slop.domain import Game, GameSettings, Guess, Player, Role, Round, Script, 
 TEAM_SPECS: tuple[tuple[str, str, str], ...] = (
     ("team-1", "Red Team", "#FF0000"),
     ("team-2", "Blue Team", "#0000FF"),
+    ("team-3", "Green Team", "#00FF00"),
 )
 DEFAULT_PERSONALITIES = ("noir", "melodrama")
 DEFAULT_PROMPT = "Superhero saves city from angry aliens"
@@ -42,9 +43,20 @@ def lobby_with_two_teams(*, room_code: str = "ABCD", players_per_team: int = 2) 
 
     ``player-1`` created the game. Nobody has a personality yet.
     """
+    return _lobby(room_code=room_code, num_teams=2, players_per_team=players_per_team)
+
+
+def selecting_personalities(*, num_teams: int = 2, players_per_team: int = 2) -> Game:
+    """``num_teams`` teams (2 or 3) in personality selection, with no pick made yet."""
+    game = _lobby(room_code="ABCD", num_teams=num_teams, players_per_team=players_per_team)
+    game.set_personality_selection_phase()
+    return game
+
+
+def _lobby(*, room_code: str, num_teams: int, players_per_team: int) -> Game:
     game = Game(id="game-1", room_code=room_code)
     player_number = 1
-    for team_id, name, color in TEAM_SPECS:
+    for team_id, name, color in TEAM_SPECS[:num_teams]:
         team = Team(
             id=team_id,
             name=name,

@@ -19,3 +19,13 @@ def test_every_personality_is_keyed_by_its_id():
 def test_an_unknown_personality_is_a_rule_error():
     with pytest.raises(GameRuleError, match="cowboy"):
         get_personality("cowboy")
+
+
+def test_the_starter_set_has_the_three_classics_and_a_few_more():
+    assert {"noir", "melodrama", "absurdist"} <= PERSONALITIES.keys()
+    assert 5 <= len(PERSONALITIES) <= 6
+
+
+def test_every_personality_has_a_short_style_description():
+    for personality in PERSONALITIES.values():
+        assert 0 < len(personality.description) <= 80
