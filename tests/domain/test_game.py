@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from slop.domain import ContentTone, Game, GameSettings, GameStatus, Player, Team
+from tests.builders import lobby_with_two_teams
 
 
 def test_game_status_enum():
@@ -217,10 +218,8 @@ def test_game_next_round():
 
 def test_game_get_total_rounds():
     """Test calculating total expected rounds."""
-    game = Game(id="game-1", room_code="TEST")
+    game = lobby_with_two_teams()
     game.settings = GameSettings(rounds_per_team=3)
-    game.add_team(Team(id="team-1", name="Team 1", color="#FF0000"))
-    game.add_team(Team(id="team-2", name="Team 2", color="#00FF00"))
 
     total_rounds = game.get_total_rounds()
 
@@ -229,10 +228,8 @@ def test_game_get_total_rounds():
 
 def test_game_is_complete():
     """Test checking if all rounds are complete."""
-    game = Game(id="game-1", room_code="TEST")
+    game = lobby_with_two_teams()
     game.settings = GameSettings(rounds_per_team=2)
-    game.add_team(Team(id="team-1", name="Team 1", color="#FF0000"))
-    game.add_team(Team(id="team-2", name="Team 2", color="#00FF00"))
 
     assert not game.is_complete()
 
@@ -245,11 +242,8 @@ def test_game_is_complete():
 
 def test_game_get_acting_team():
     """Test getting the current acting team."""
-    game = Game(id="game-1", room_code="TEST")
-    team1 = Team(id="team-1", name="Team 1", color="#FF0000")
-    team2 = Team(id="team-2", name="Team 2", color="#00FF00")
-    game.add_team(team1)
-    game.add_team(team2)
+    game = lobby_with_two_teams()
+    team1, team2 = game.teams
 
     # Round 0 should be team 1
     acting_team = game.get_acting_team()
