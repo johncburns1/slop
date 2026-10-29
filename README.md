@@ -10,6 +10,7 @@ A party game for groups in the same room. Your team writes a six-word prompt, an
 
 - [PRODUCT.md](PRODUCT.md): what we're building and why
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the system is put together
+- [CONTRIBUTING.md](CONTRIBUTING.md): PR rules, priority labels, and workstream states
 
 ## Development
 
