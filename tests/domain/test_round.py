@@ -234,3 +234,16 @@ def test_round_get_role_for_player_not_found(sample_script):
 
     with pytest.raises(ValueError, match="Player .* not assigned a role"):
         round_obj.get_role_for_player("player-99")
+
+
+def test_a_new_round_has_no_prompt_script_or_roles_yet():
+    """A round starts empty and fills in as the acting team plays."""
+    round_obj = Round(id="round-0", round_number=0, acting_team_id="team-1")
+
+    assert (round_obj.prompt, round_obj.submitted_by, round_obj.script) == (None, None, None)
+    assert round_obj.role_assignments == {}
+    with pytest.raises(ValueError, match="not assigned a role"):
+        round_obj.get_role_for_player("player-1")
+    round_obj.set_personality_guess("noir")
+    round_obj.check_personality_guess()
+    assert round_obj.personality_correct is False

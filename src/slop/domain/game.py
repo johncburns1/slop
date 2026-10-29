@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 
+from slop.domain.errors import GameRuleError
 from slop.domain.player import Player
 from slop.domain.round import Round
 from slop.domain.team import Team
@@ -33,6 +34,24 @@ class GameSettings:
     guess_timer_seconds: int = 60
     max_players_per_team: int = 3
     content_tone: ContentTone = ContentTone.FAMILY
+    max_players: int = 12
+
+    def check(self) -> None:
+        """Check the settings are playable.
+
+        Raises:
+            GameRuleError: If any limit or count is below one
+        """
+        counts = {
+            "rounds_per_team": self.rounds_per_team,
+            "guess_timer_seconds": self.guess_timer_seconds,
+            "max_players_per_team": self.max_players_per_team,
+        }
+        for name, value in counts.items():
+            if value < 1:
+                raise GameRuleError(f"{name} must be at least 1")
+        if self.max_players < self.max_players_per_team:
+            raise GameRuleError("max_players must be at least max_players_per_team")
 
 
 @dataclass

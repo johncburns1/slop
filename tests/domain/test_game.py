@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from slop.domain import ContentTone, Game, GameSettings, GameStatus, Player, Team
+from slop.domain.errors import GameRuleError
 from tests.builders import lobby_with_two_teams
 
 
@@ -272,3 +273,23 @@ def test_game_validate_room_code():
 
     with pytest.raises(ValueError, match="Room code must be"):
         Game(id="game-4", room_code="ABCDEFGH")  # Too long
+
+
+def test_default_settings_pass_the_check():
+    """The defaults describe a playable game."""
+    GameSettings().check()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"rounds_per_team": 0}, "rounds_per_team"),
+        ({"guess_timer_seconds": 0}, "guess_timer_seconds"),
+        ({"max_players_per_team": 0}, "max_players_per_team"),
+        ({"max_players": 2}, "max_players must be at least"),
+    ],
+)
+def test_unplayable_settings_fail_the_check(overrides, message):
+    """Counts below one, or a game smaller than one team, break the rules."""
+    with pytest.raises(GameRuleError, match=message):
+        GameSettings(**overrides).check()

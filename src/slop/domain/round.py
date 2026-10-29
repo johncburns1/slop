@@ -48,10 +48,11 @@ class Round:
     id: str
     round_number: int
     acting_team_id: str
-    prompt: str
-    submitted_by: str
-    script: Script
-    role_assignments: dict[str, int]  # player_id -> role index
+    # Filled in as the round progresses: prompt, then script, then roles.
+    prompt: str | None = None
+    submitted_by: str | None = None
+    script: Script | None = None
+    role_assignments: dict[str, int] = field(default_factory=dict)  # player_id -> role index
     prompt_guesses: list[Guess] = field(default_factory=list)
     prompt_winner_team_id: str | None = None
     personality_guess: str | None = None
@@ -73,10 +74,9 @@ class Round:
 
     def check_personality_guess(self) -> None:
         """Check if the personality guess is correct."""
-        if self.personality_guess == self.script.personality:
-            self.personality_correct = True
-        else:
-            self.personality_correct = False
+        self.personality_correct = (
+            self.script is not None and self.personality_guess == self.script.personality
+        )
 
     def add_score_to_team(self, team_id: str, points: int) -> None:
         """Add points to a specific team's score for this round."""
@@ -96,7 +96,7 @@ class Round:
         Raises:
             ValueError: If player is not assigned a role in this round
         """
-        if player_id not in self.role_assignments:
+        if self.script is None or player_id not in self.role_assignments:
             raise ValueError(f"Player {player_id} not assigned a role in this round")
 
         role_index = self.role_assignments[player_id]

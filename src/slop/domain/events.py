@@ -34,6 +34,8 @@ class GameCreated(GameEvent):
     content_tone: str
     max_players: int
     rounds_per_team: int
+    guess_timer_seconds: int = 60
+    max_players_per_team: int = 3
 
 
 class PlayerJoined(GameEvent):
