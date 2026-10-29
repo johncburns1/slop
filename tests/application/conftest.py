@@ -13,6 +13,7 @@ from slop.adapters.ids import SequentialIds
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps
+from slop.domain import Game
 
 NOW = datetime(2026, 1, 1, 20, 0, tzinfo=UTC)
 
@@ -42,3 +43,11 @@ def deps(
     storage: InMemoryStorage, realtime: RecordingRealtime, clock: FixedClock, ids: SequentialIds
 ) -> GameDeps:
     return GameDeps(storage=storage, realtime=realtime, clock=clock, ids=ids)
+
+
+async def seat(storage: InMemoryStorage, realtime: RecordingRealtime, game: Game) -> Game:
+    """Store the game's snapshot and put its players' sockets in its room."""
+    await storage.save_snapshot(game)
+    for player in game.players:
+        await realtime.join_room(player.socket_id, game.room_code)
+    return game
