@@ -1,18 +1,17 @@
 """ASGI app: the HTTP entry point to the server."""
 
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
+from fastapi import FastAPI
 
 from slop import __version__
 
 
-async def health(request: Request) -> JSONResponse:
+async def health() -> dict[str, str]:
     """Report that the server is up."""
-    return JSONResponse({"status": "ok", "version": __version__})
+    return {"status": "ok", "version": __version__}
 
 
-def create_app() -> Starlette:
+def create_app() -> FastAPI:
     """Build the ASGI app."""
-    return Starlette(routes=[Route("/health", health, methods=["GET"])])
+    app = FastAPI(title="Slop", version=__version__)
+    app.add_api_route("/health", health, methods=["GET"])
+    return app
