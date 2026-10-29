@@ -16,6 +16,7 @@ A party game for groups in the same room. Your team writes a six-word prompt, an
 Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
+uv run scripts/validate.py   # set up and run every check below, as CI does
 uv sync --all-extras   # install
 uv run pytest          # test
 uv run mypy src        # type check
@@ -23,4 +24,4 @@ uv run ruff check      # lint
 uv run ruff format     # format
 ```
 
-These are the same checks CI runs.
+`scripts/validate.py` prints a summary, writes `.validation/summary.json`, and exits non-zero if any check fails.
