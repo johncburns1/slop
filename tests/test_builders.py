@@ -6,6 +6,7 @@ from slop.domain import GameStatus
 from tests.builders import (
     in_guessing_phase,
     lobby_with_two_teams,
+    lobby_without_teams,
     personalities_assigned,
     tied_after_last_round,
     waiting_for_prompt,
@@ -20,6 +21,16 @@ def assert_players_match_teams(game):
             assert game.get_player(player_id).team_id == team.id
     listed = [pid for team in game.teams for pid in team.player_ids]
     assert sorted(listed) == sorted(p.id for p in game.players)
+
+
+def test_lobby_without_teams():
+    game = lobby_without_teams(players=5)
+
+    assert game.status == GameStatus.LOBBY
+    assert [p.id for p in game.players] == [f"player-{n}" for n in range(1, 6)]
+    assert [p.id for p in game.players if p.is_creator] == ["player-1"]
+    assert all(p.team_id is None for p in game.players)
+    assert game.teams == []
 
 
 def test_lobby_with_two_teams():

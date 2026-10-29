@@ -9,12 +9,14 @@ from slop.domain import (
     GameStatus,
     Guess,
     PersonalityGuessSubmitted,
+    PersonalitySelectionStarted,
     PlayerJoinedTeam,
     PlayerLeft,
     PromptSubmitted,
     Role,
     RoleAssigned,
     RoundCompleted,
+    TeamDisbanded,
 )
 from slop.domain.projection import ProjectionError, apply_event, replay
 from tests.event_logs import (
@@ -75,6 +77,29 @@ def test_a_player_who_leaves_is_removed_from_the_game_and_their_team():
 
     assert [p.id for p in game.players] == ["player-1", "player-3", "player-4"]
     assert game.get_team("team-1").player_ids == ["player-1"]
+
+
+def test_a_disbanded_team_is_removed_and_its_players_have_no_team():
+    game = replay([*lobby_events(), TeamDisbanded(game_id=GAME_ID, team_id="team-1")])
+
+    assert [t.id for t in game.teams] == ["team-2"]
+    assert game.get_player("player-1").team_id is None
+    assert game.get_player("player-2").team_id is None
+    assert game.get_player("player-3").team_id == "team-2"
+
+
+def test_personality_selection_started_closes_the_lobby():
+    game = replay([*lobby_events(), PersonalitySelectionStarted(game_id=GAME_ID)])
+
+    assert game.status == GameStatus.PERSONALITY_SELECTION
+
+
+def test_personality_selection_can_only_start_from_the_lobby():
+    started = PersonalitySelectionStarted(game_id=GAME_ID)
+    game = replay([*lobby_events(), started])
+
+    with pytest.raises(ProjectionError, match="not in the lobby"):
+        apply_event(game, started)
 
 
 def test_personality_assigned_records_who_picked_it():

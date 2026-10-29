@@ -12,6 +12,7 @@ from slop.domain.events import (
     GuessSubmitted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
+    PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
     PlayerLeft,
@@ -23,6 +24,7 @@ from slop.domain.events import (
     ScriptGenerated,
     ScriptGenerationFailed,
     ScriptReady,
+    TeamDisbanded,
     TeamFormed,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus
@@ -45,6 +47,7 @@ __all__ = [
     "GuessSubmitted",
     "PersonalityAssigned",
     "PersonalityGuessSubmitted",
+    "PersonalitySelectionStarted",
     "Player",
     "PlayerJoined",
     "PlayerJoinedTeam",
@@ -62,5 +65,6 @@ __all__ = [
     "ScriptGenerationFailed",
     "ScriptReady",
     "Team",
+    "TeamDisbanded",
     "TeamFormed",
 ]

@@ -71,6 +71,19 @@ class PlayerJoinedTeam(GameEvent):
     team_id: str
 
 
+class TeamDisbanded(GameEvent):
+    """Emitted when a team is removed; anyone still on it is left without a team."""
+
+    event_type: str = "TeamDisbanded"
+    team_id: str
+
+
+class PersonalitySelectionStarted(GameEvent):
+    """Emitted when the host closes the lobby and teams pick each other's personalities."""
+
+    event_type: str = "PersonalitySelectionStarted"
+
+
 class PersonalityAssigned(GameEvent):
     """Emitted when a team is assigned an AI personality."""
 

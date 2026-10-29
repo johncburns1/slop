@@ -19,6 +19,24 @@ DEFAULT_PROMPT = "Superhero saves city from angry aliens"
 DEFAULT_GUESSES = ("Aliens invade a city", "Hero fights space monsters")
 
 
+def lobby_without_teams(*, room_code: str = "ABCD", players: int = 4) -> Game:
+    """``players`` players in the lobby, none of them on a team yet.
+
+    ``player-1`` created the game.
+    """
+    game = Game(id="game-1", room_code=room_code)
+    for number in range(1, players + 1):
+        game.add_player(
+            Player(
+                id=f"player-{number}",
+                name=f"Player {number}",
+                socket_id=f"socket-{number}",
+                is_creator=number == 1,
+            )
+        )
+    return game
+
+
 def lobby_with_two_teams(*, room_code: str = "ABCD", players_per_team: int = 2) -> Game:
     """Two teams in the lobby, each with ``players_per_team`` players.
 

@@ -20,6 +20,7 @@ from slop.domain.events import (
     GuessSubmitted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
+    PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
     PlayerLeft,
@@ -31,6 +32,7 @@ from slop.domain.events import (
     ScriptGenerated,
     ScriptGenerationFailed,
     ScriptReady,
+    TeamDisbanded,
     TeamFormed,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus
@@ -102,6 +104,15 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
                 _team(game, player.team_id).remove_player(player.id)
             team.add_player(player.id)
             player.assign_to_team(team.id)
+        case TeamDisbanded():
+            team = _team(game, event.team_id)
+            for player_id in team.player_ids:
+                _player(game, player_id).remove_from_team()
+            game.remove_team(team.id)
+        case PersonalitySelectionStarted():
+            if game.status != GameStatus.LOBBY:
+                raise ProjectionError(f"Game {game.id} is not in the lobby")
+            game.set_personality_selection_phase()
         case PersonalityAssigned():
             _team(game, event.team_id).assign_personality(
                 event.personality_id, assigned_by=event.assigned_by_team_id

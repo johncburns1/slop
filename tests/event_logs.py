@@ -14,6 +14,7 @@ from slop.domain import (
     GuessSubmitted,
     PersonalityAssigned,
     PersonalityGuessSubmitted,
+    PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
     PlayerLeft,
@@ -25,6 +26,7 @@ from slop.domain import (
     ScriptGenerated,
     ScriptGenerationFailed,
     ScriptReady,
+    TeamDisbanded,
     TeamFormed,
 )
 
@@ -152,7 +154,13 @@ def full_game_events() -> list[GameEvent]:
             player_name="Player 5",
             socket_id="socket-5",
         ),
+        TeamFormed(
+            game_id=GAME_ID, timestamp=at(8), team_id="team-3", team_name="Green", color="#0F0"
+        ),
+        PlayerJoinedTeam(game_id=GAME_ID, player_id="player-5", team_id="team-3"),
+        TeamDisbanded(game_id=GAME_ID, team_id="team-3"),
         PlayerLeft(game_id=GAME_ID, player_id="player-5"),
+        PersonalitySelectionStarted(game_id=GAME_ID),
         *round_zero_events(),
         ScriptGenerationFailed(game_id=GAME_ID, round_number=0, team_id="team-1"),
         ScriptReady(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
