@@ -10,6 +10,7 @@ import pytest
 
 from slop.adapters.clock import FixedClock
 from slop.adapters.ids import SequentialIds
+from slop.adapters.llm import StandInLLMAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps
@@ -38,7 +39,16 @@ def ids() -> SequentialIds:
 
 
 @pytest.fixture
+def llm() -> StandInLLMAdapter:
+    return StandInLLMAdapter()
+
+
+@pytest.fixture
 def deps(
-    storage: InMemoryStorage, realtime: RecordingRealtime, clock: FixedClock, ids: SequentialIds
+    storage: InMemoryStorage,
+    realtime: RecordingRealtime,
+    clock: FixedClock,
+    ids: SequentialIds,
+    llm: StandInLLMAdapter,
 ) -> GameDeps:
-    return GameDeps(storage=storage, realtime=realtime, clock=clock, ids=ids)
+    return GameDeps(storage=storage, realtime=realtime, clock=clock, ids=ids, llm=llm)

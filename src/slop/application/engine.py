@@ -12,6 +12,7 @@ from slop.domain.game import Game
 from slop.domain.projection import apply_event
 from slop.ports.clock import Clock
 from slop.ports.ids import IdGenerator
+from slop.ports.llm import LLMPort
 from slop.ports.realtime import RealtimePort
 from slop.ports.storage import StoragePort
 
@@ -24,6 +25,7 @@ class GameDeps:
     realtime: RealtimePort
     clock: Clock
     ids: IdGenerator
+    llm: LLMPort
 
 
 @dataclass(frozen=True)

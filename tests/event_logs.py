@@ -23,6 +23,8 @@ from slop.domain import (
     RoundStarted,
     ScoresUpdated,
     ScriptGenerated,
+    ScriptGenerationFailed,
+    ScriptReady,
     TeamFormed,
 )
 
@@ -152,6 +154,8 @@ def full_game_events() -> list[GameEvent]:
         ),
         PlayerLeft(game_id=GAME_ID, player_id="player-5"),
         *round_zero_events(),
+        ScriptGenerationFailed(game_id=GAME_ID, round_number=0, team_id="team-1"),
+        ScriptReady(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
         *round_zero_scored_events(),
         GameCompleted(
             game_id=GAME_ID, final_scores={"team-1": 2, "team-2": 1}, winner_team_id="team-1"

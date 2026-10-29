@@ -61,6 +61,25 @@ def personalities_assigned(
     return game
 
 
+def waiting_for_prompt(*, players_per_team: int = 2) -> Game:
+    """First round started: team 1 is acting and has not submitted a prompt yet.
+
+    Team 1 performs with ``noir`` and team 2 with ``melodrama``.
+    """
+    game = lobby_with_two_teams(players_per_team=players_per_team)
+    _assign_personalities(game, DEFAULT_PERSONALITIES)
+    game.start()
+    acting = game.get_acting_team()
+    game.rounds.append(
+        Round(
+            id=f"round-{game.current_round}",
+            round_number=game.current_round,
+            acting_team_id=acting.id,
+        )
+    )
+    return game
+
+
 def in_guessing_phase(
     *,
     prompt: str = DEFAULT_PROMPT,

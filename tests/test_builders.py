@@ -8,6 +8,7 @@ from tests.builders import (
     lobby_with_two_teams,
     personalities_assigned,
     tied_after_last_round,
+    waiting_for_prompt,
 )
 
 
@@ -119,3 +120,14 @@ def test_tied_after_last_round_overrides():
     assert len(game.rounds) == 2
     assert game.is_complete()
     assert game.teams[0].score == game.teams[1].score
+
+
+def test_waiting_for_prompt():
+    game = waiting_for_prompt()
+
+    assert game.status == GameStatus.PLAYING
+    assert_players_match_teams(game)
+    (current,) = game.rounds
+    assert (current.round_number, current.acting_team_id) == (0, "team-1")
+    assert (current.prompt, current.script, current.role_assignments) == (None, None, {})
+    assert game.get_team("team-1").assigned_personality == "noir"
