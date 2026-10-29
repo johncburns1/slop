@@ -49,7 +49,3 @@ class Script:
     def get_role_count(self) -> int:
         """Get the number of roles in this script."""
         return len(self.roles)
-
-
-def broken() -> int:
-    return "not an int"
