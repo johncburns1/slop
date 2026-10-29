@@ -5,5 +5,6 @@ that implement the StoragePort interface.
 """
 
 from slop.adapters.storage.in_memory import InMemoryStorage
+from slop.adapters.storage.sqlite import SQLiteStorage
 
-__all__ = ["InMemoryStorage"]
+__all__ = ["InMemoryStorage", "SQLiteStorage"]
