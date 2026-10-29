@@ -53,7 +53,7 @@ def leaders(game: Game) -> list[Team]:
 def next_step(game: Game) -> NextStep:
     """Decide what follows once every round before ``game.current_round`` is over."""
     if not game.is_complete():
-        return PlayRound(acting_team_id=game.get_acting_team().id)
+        return PlayRound(acting_team_id=game.acting_team_for(game.current_round).id)
     tiebreaker = game.tiebreaker
     if tiebreaker is not None:
         played = game.current_round - tiebreaker.first_round

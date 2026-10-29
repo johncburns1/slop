@@ -4,13 +4,14 @@ Once the acting team has its script, any player on another team can submit
 any number of guesses. A player on the acting team then picks the winning
 guess, or says nobody got it, which closes guessing. Finally they guess which
 personality wrote their script. That guess is revealed, the round is scored
-(see ``round_score_changes``), and the turn passes to the next team. After the
-last regular round no new round starts; ending the game is a separate step.
+(see ``round_score_changes``), and ``finish_or_continue`` decides what comes
+next: the next team's round, a tiebreaker, or the end of the game.
 """
 
 from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, Private, commit, load_game
+from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
 from slop.domain.errors import GameRuleError
 from slop.domain.events import (
     GameEvent,
@@ -20,7 +21,6 @@ from slop.domain.events import (
     PersonalityGuessSubmitted,
     PersonalityRevealed,
     RoundCompleted,
-    RoundStarted,
     ScoresUpdated,
 )
 from slop.domain.game import Game, GameStatus
@@ -132,12 +132,12 @@ async def pick_winning_guess(deps: GameDeps, command: PickWinningGuess) -> Game:
 
 
 async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
-    """Record the guess, reveal the personality, score and complete the round, and start the next.
+    """Record the guess, reveal the personality, score and complete the round, and move on.
 
     The reveal goes to the room, or only to the acting team when
     ``REVEAL_PERSONALITY_TO_ROOM`` is off. ``RoundCompleted`` carries every
-    team's total. The next team's round starts unless this was the last
-    regular round.
+    team's total. Then ``finish_or_continue`` starts the next round, starts
+    a tiebreaker, or ends the game.
 
     Raises:
         GameNotFoundError: If there is no such game
@@ -170,16 +170,8 @@ async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
         ScoresUpdated(game_id=game.id, round_number=current.round_number, score_changes=changes),
         RoundCompleted(game_id=game.id, round_number=current.round_number, final_scores=totals),
     ]
-    next_round = current.round_number + 1
-    if next_round < game.get_total_rounds():
-        events.append(
-            RoundStarted(
-                game_id=game.id,
-                round_number=next_round,
-                acting_team_id=game.acting_team_for(next_round).id,
-            )
-        )
-    return await commit(deps, game, events)
+    game = await commit(deps, game, events)
+    return await finish_or_continue(deps, FinishOrContinue(game.id))
 
 
 def round_score_changes(
