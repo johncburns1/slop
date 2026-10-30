@@ -63,6 +63,7 @@ async def test_report_has_the_result_a_row_per_round_and_collapsed_player_logs()
 
     assert text.startswith("## Tied\n\nBoth teams name")
     assert "**Setup:** 1 round per team. Red: Ann. Blue: Ben." in text
+    assert "**Transport:** in-process" in text
     assert "**Result:** Draw, 2–2 (Red 2, Blue 2)." in text
     assert (
         "| 0 | Red | Robots perform round 0 badly | nobody | ❌ absurdist (noir) | 0 | 0 |" in text

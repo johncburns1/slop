@@ -1,6 +1,7 @@
 """A scenario: a named game, the bots that play it, and how it should end.
 
-``play`` seats the bots and plays the game to the end. ``outcome_of`` reduces
+``play`` seats the bots and plays the game to the end, in-process or on any
+other ``GameServer``, such as a real one over Socket.IO. ``outcome_of`` reduces
 the result to what a scenario expects, with teams named rather than by id.
 ``report`` writes the evidence: the setup, the result, a round-by-round score
 table, and what each player received, collapsed.
@@ -26,7 +27,7 @@ from slop.domain.events import (
     TiebreakerStarted,
 )
 from tests.sim.bot import BotScript
-from tests.sim.client import InProcessServer
+from tests.sim.client import GameServer, InProcessServer
 from tests.sim.table import Table
 
 
@@ -74,14 +75,18 @@ class Scenario:
 class Played:
     table: Table
     completed: GameCompleted
+    transport: str = InProcessServer.transport
 
 
-async def play(scenario: Scenario) -> Played:
-    """Play the scenario from an empty lobby to the end of the game."""
-    server = InProcessServer.with_stand_ins()
+async def play(scenario: Scenario, server: GameServer | None = None) -> Played:
+    """Play the scenario from an empty lobby to the end of the game.
+
+    Plays on a fresh in-process server unless given one.
+    """
+    server = server or InProcessServer.with_stand_ins()
     room_code = await server.create_game(rounds_per_team=scenario.rounds_per_team)
     table = await Table.seat(server, room_code, scenario.scripts)
-    return Played(table, await table.play())
+    return Played(table, await table.play(), server.transport)
 
 
 def outcome_of(played: Played) -> Outcome:
@@ -105,6 +110,7 @@ def report(scenario: Scenario, played: Played) -> str:
                 f"## {scenario.name}",
                 scenario.summary,
                 f"**Setup:** {scenario.rounds_per_team} {rounds} per team. {setup}",
+                f"**Transport:** {played.transport}",
                 f"**Result:** {_result(played)}",
                 _score_table(played),
                 "<details>\n<summary>What each player received</summary>",
