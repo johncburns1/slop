@@ -10,12 +10,17 @@ inbox into a ``View`` and offers at most one action it could take now:
 
 ``Table`` decides when each action runs. ``BotScript`` says what the bot does
 whenever it has a choice; anything left out has a default.
+
+A bot can ``drop`` its connection and later ``rejoin``. It misses whatever
+happened in between, so its ``View`` takes the game from the view the server
+returns on rejoining, then carries on from the events that follow.
 """
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
+from slop.api.schemas import PlayerViewReply
 from slop.domain.events import (
     GameCompleted,
     GameEvent,
@@ -34,6 +39,7 @@ from slop.domain.events import (
     TeamDisbanded,
     TeamFormed,
 )
+from slop.domain.game import GameStatus
 from tests.sim.client import GameClient
 
 TEAM_COLORS = ("#E53935", "#1E88E5", "#43A047", "#FDD835", "#8E24AA", "#FB8C00")
@@ -140,11 +146,49 @@ class View:
             case GameCompleted():
                 self.completed = event
 
+    def resync(self, snapshot: PlayerViewReply) -> None:
+        """Catch up with the game as the server showed it on rejoining.
 
-def view_of(player_id: str, inbox: list[GameEvent]) -> View:
+        Replaces what was known about the lobby and the current round; earlier
+        rounds stay as they were heard. A finished game shows no round, so
+        rejoin before the end to hear ``GameCompleted``.
+        """
+        game_id = snapshot.game_id
+        self.players = {p.id: p.team_id for p in snapshot.players}
+        self.teams = {
+            t.id: TeamFormed(game_id=game_id, team_id=t.id, team_name=t.name, color=t.color)
+            for t in snapshot.teams
+        }
+        self.selecting_personalities = snapshot.status != GameStatus.LOBBY
+        self.picked_by = {t.id for t in snapshot.teams if t.has_picked}
+        current = snapshot.current_round
+        if current is None:
+            return
+        n = current.round_number
+        self.acting_teams[n] = current.acting_team_id
+        if current.prompt is not None:
+            self.prompts[n] = current.prompt
+        if current.phase != "waiting_for_prompt":
+            self.scripts_ready.add(n)
+        self.guesses[n] = [
+            GuessSubmitted(game_id=game_id, round_number=n, team_id=g.team_id, guess=g.guess)
+            for g in current.guesses
+        ]
+        if current.phase == "guessing_personality":
+            self.judged.add(n)
+
+
+Resync = tuple[int, PlayerViewReply]
+"""A view the server returned on rejoining, and how many events had been received by then."""
+
+
+def view_of(player_id: str, inbox: list[GameEvent], resyncs: Sequence[Resync] = ()) -> View:
     view = View(player_id=player_id)
-    for event in inbox:
-        view.apply(event)
+    for received in range(len(inbox) + 1):
+        for _, snapshot in (r for r in resyncs if r[0] == received):
+            view.resync(snapshot)
+        if received < len(inbox):
+            view.apply(inbox[received])
     return view
 
 
@@ -156,7 +200,9 @@ class Bot:
         self.script = script
         self.is_host = is_host
         self.player_id: str | None = None
+        self.room_code: str | None = None
         self._guessed_in: set[int] = set()
+        self._resyncs: list[Resync] = []
 
     @property
     def name(self) -> str:
@@ -170,8 +216,26 @@ class Bot:
     def team_id(self) -> str | None:
         return self.view().team_id
 
+    @property
+    def connected(self) -> bool:
+        return self.client.connected
+
     async def join(self, room_code: str) -> None:
         self.player_id = await self.client.join_game(room_code, self.script.name)
+        self.room_code = room_code
+
+    async def drop(self) -> None:
+        """Lose the connection. The bot stays in the game but can't act or hear anything."""
+        await self.client.disconnect()
+
+    async def rejoin(self) -> PlayerViewReply:
+        """Reconnect as the same player, catch up from the server's view, and return it."""
+        if self.player_id is None or self.room_code is None:
+            raise RuntimeError(f"{self.name} hasn't joined a game")
+        received = len(self.inbox())
+        snapshot = await self.client.rejoin_game(self.room_code, self.player_id)
+        self._resyncs.append((received, snapshot))
+        return snapshot
 
     def inbox(self) -> list[GameEvent]:
         return self.client.inbox()
@@ -179,7 +243,7 @@ class Bot:
     def view(self) -> View:
         if self.player_id is None:
             raise RuntimeError(f"{self.name} hasn't joined a game")
-        return view_of(self.player_id, self.inbox())
+        return view_of(self.player_id, self.inbox(), self._resyncs)
 
     def eager_action(self, answers: AnswerKey) -> Action | None:
         """What this bot would do right now, if anything."""
