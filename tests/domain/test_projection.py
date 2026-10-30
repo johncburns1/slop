@@ -16,6 +16,7 @@ from slop.domain import (
     PersonalitySelectionStarted,
     PlayerJoinedTeam,
     PlayerLeft,
+    PlayerReconnected,
     PromptSubmitted,
     Role,
     RoleAssigned,
@@ -84,6 +85,29 @@ def test_a_player_who_leaves_is_removed_from_the_game_and_their_team():
 
     assert [p.id for p in game.players] == ["player-1", "player-3", "player-4"]
     assert game.get_team("team-1").player_ids == ["player-1"]
+
+
+def test_a_reconnected_player_keeps_their_place_on_a_new_socket():
+    game = replay(
+        [
+            *lobby_events(),
+            PlayerReconnected(game_id=GAME_ID, player_id="player-2", socket_id="socket-2b"),
+        ]
+    )
+
+    player = game.get_player("player-2")
+    assert (player.socket_id, player.team_id) == ("socket-2b", "team-1")
+    assert [p.id for p in game.players] == ["player-1", "player-2", "player-3", "player-4"]
+
+
+def test_reconnecting_a_player_not_in_the_game_is_an_inconsistent_log():
+    with pytest.raises(ProjectionError, match="player-9"):
+        replay(
+            [
+                *lobby_events(),
+                PlayerReconnected(game_id=GAME_ID, player_id="player-9", socket_id="socket-9"),
+            ]
+        )
 
 
 def test_a_disbanded_team_is_removed_and_its_players_have_no_team():

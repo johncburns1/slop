@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from slop.domain.game import ContentTone
+from slop.domain.game import ContentTone, GameStatus
 
 
 class HealthResponse(BaseModel):
@@ -46,6 +46,11 @@ class CreateGameRequest(Request):
 class JoinGameRequest(Request):
     room_code: str
     player_name: str
+
+
+class RejoinGameRequest(Request):
+    room_code: str
+    player_id: str
 
 
 class CreateTeamRequest(Request):
@@ -95,6 +100,93 @@ class JoinedReply(Reply):
 
 class TeamCreatedReply(Reply):
     team_id: str
+
+
+class ViewModel(BaseModel):
+    """Part of a `PlayerViewReply`, read from the application's view of the same name."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", from_attributes=True)
+
+
+class SettingsView(ViewModel):
+    rounds_per_team: int
+    guess_timer_seconds: int
+    max_players_per_team: int
+    content_tone: ContentTone
+    max_players: int
+
+
+class PlayerSummary(ViewModel):
+    id: str
+    name: str
+    team_id: str | None
+    is_host: bool
+
+
+class TeamView(ViewModel):
+    """A team. `personality_id` is null until the player may see it."""
+
+    id: str
+    name: str
+    color: str
+    player_ids: list[str]
+    score: int
+    has_picked: bool
+    personality_id: str | None
+
+
+class PersonalityPick(ViewModel):
+    team_id: str
+    personality_id: str
+
+
+class GuessView(ViewModel):
+    team_id: str
+    guess: str
+    accepted: bool
+
+
+class RoleView(ViewModel):
+    name: str
+    description: str
+    lines: list[str]
+    player_id: str | None
+
+
+class ScriptView(ViewModel):
+    content: str
+    roles: list[RoleView]
+    estimated_duration: int
+    word_count: int
+
+
+class RoundView(ViewModel):
+    """The round in progress. `prompt` and `script` are null unless the player is acting."""
+
+    round_number: int
+    acting_team_id: str
+    phase: Literal["waiting_for_prompt", "guessing", "guessing_personality"]
+    guesses: list[GuessView]
+    prompt_winner_team_id: str | None
+    prompt: str | None
+    script: ScriptView | None
+
+
+class PlayerViewReply(Reply):
+    """Ack of `rejoin_game`: the game as this player may see it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", from_attributes=True)
+
+    game_id: str
+    room_code: str
+    status: GameStatus
+    settings: SettingsView
+    player_id: str
+    team_id: str | None
+    players: list[PlayerSummary]
+    teams: list[TeamView]
+    current_round: RoundView | None
+    my_pick: PersonalityPick | None
 
 
 ErrorCode = Literal["invalid_payload", "not_in_game", "game_not_found", "rule_broken"]

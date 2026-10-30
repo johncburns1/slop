@@ -7,6 +7,7 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
   guess_timer_seconds?, max_players_per_team?, max_players?}``
   -> ``{game_id, room_code}``
 - ``join_game {room_code, player_name}`` -> ``{game_id, player_id}``
+- ``rejoin_game {room_code, player_id}`` -> the player's view (see below)
 - ``leave_game {}``
 - ``create_team {team_name, color}`` -> ``{team_id}``
 - ``join_team {team_id}``
@@ -26,6 +27,16 @@ everyone else, and the first player to join is the host. ``join_game`` ties
 the connection to the new player, and every later message acts as that
 player in that game. Disconnecting unties the connection but leaves the
 player in the game.
+
+``rejoin_game`` is how that player comes back, on a new connection or after a
+server restart: it ties the connection to the existing player (no new
+``PlayerJoined``; the room gets ``PlayerReconnected``) and acks with
+``{game_id, room_code, status, settings, player_id, team_id, players, teams,
+current_round, my_pick}``, the game as that player may see it (see
+``slop.application.player_view``). ``current_round`` holds the round's
+``phase`` and ``guesses``, plus its ``prompt`` and ``script`` for the acting
+team only. A team's ``personality_id`` stays null until it is revealed, and
+``my_pick`` is the personality the player's team picked for another team.
 
 The server sends game events to clients under their ``event_type`` (such as
 ``PlayerJoined``), with the event as the payload. A rejected message gets
@@ -53,6 +64,8 @@ from slop.api.schemas import (
     NoPayload,
     PersonalityRequest,
     PickWinningGuessRequest,
+    PlayerViewReply,
+    RejoinGameRequest,
     Reply,
     Request,
     SubmitGuessRequest,
@@ -83,6 +96,7 @@ from slop.application.guess_and_score import (
 from slop.application.join_game import JoinGame, join_game
 from slop.application.leave_game import LeaveGame, leave_game
 from slop.application.play_again import PlayAgain, play_again
+from slop.application.rejoin_game import RejoinGame, rejoin_game
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain.errors import GameNotFoundError, GameRuleError
 
@@ -113,6 +127,7 @@ class GameMessages:
         """Start handling every client message on the realtime server."""
         self._route("create_game", CreateGameRequest, self.create_game)
         self._route("join_game", JoinGameRequest, self.join_game)
+        self._route("rejoin_game", RejoinGameRequest, self.rejoin_game)
         self._route("leave_game", NoPayload, self.leave_game)
         self._route("create_team", CreateTeamRequest, self.create_team)
         self._route("join_team", JoinTeamRequest, self.join_team)
@@ -137,6 +152,14 @@ class GameMessages:
         )
         self._seats[sid] = Seat(game_id=joined.game.id, player_id=joined.player_id)
         return JoinedReply(game_id=joined.game.id, player_id=joined.player_id)
+
+    async def rejoin_game(self, sid: str, request: RejoinGameRequest) -> PlayerViewReply:
+        rejoined = await rejoin_game(
+            self._deps,
+            RejoinGame(room_code=request.room_code, player_id=request.player_id, socket_id=sid),
+        )
+        self._seats[sid] = Seat(game_id=rejoined.game.id, player_id=request.player_id)
+        return PlayerViewReply.model_validate(rejoined.view)
 
     async def leave_game(self, sid: str, request: NoPayload) -> None:
         seat = self._seat(sid)

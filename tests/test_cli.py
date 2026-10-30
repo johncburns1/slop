@@ -166,3 +166,102 @@ async def test_served_games_are_played_over_socketio_and_stored_in_the_data_dir(
     assert game is not None
     assert game.room_code == created["room_code"]
     assert [(p.id, p.name) for p in game.players] == [(joined["player_id"], "Alice")]
+
+
+class Phones:
+    """One Socket.IO client per player, against the server on ``port``."""
+
+    def __init__(self, port: int) -> None:
+        self.url = f"http://127.0.0.1:{port}"
+        self.clients: dict[str, socketio.AsyncClient] = {}
+
+    async def connect(self, *names: str) -> None:
+        for name in names:
+            client = socketio.AsyncClient(reconnection=False)
+            await client.connect(self.url, transports=["websocket"], wait_timeout=5)
+            self.clients[name] = client
+
+    async def send(self, name: str, message: str, payload: dict[str, Any] | None = None) -> Any:
+        return await self.clients[name].call(message, payload or {}, timeout=5)
+
+    async def rejoin(self, room_code: str, ids: dict[str, str]) -> dict[str, Any]:
+        """Connect every player and rejoin the game. Returns each player's view."""
+        await self.connect(*ids)
+        return {
+            name: await self.send(name, "rejoin_game", {"room_code": room_code, "player_id": id_})
+            for name, id_ in ids.items()
+        }
+
+    async def drop_all(self) -> None:
+        for client in self.clients.values():
+            await client.disconnect()
+        self.clients = {}
+
+
+async def test_players_rejoin_a_restarted_server_and_the_game_carries_on(tmp_path: Path) -> None:
+    """Each `with running_server` is a fresh server process on the same data directory."""
+    (port,) = free_ports(1)
+    phones = Phones(port)
+    ids: dict[str, str] = {}
+
+    with running_server(port, tmp_path):
+        await phones.connect("alice", "bob", "carol", "dave")
+        created = await phones.send("alice", "create_game", {"content_tone": "family"})
+        room_code = created["room_code"]
+        for name in ("alice", "bob", "carol", "dave"):
+            joined = await phones.send(
+                name, "join_game", {"room_code": room_code, "player_name": name}
+            )
+            ids[name] = joined["player_id"]
+        red = await phones.send("alice", "create_team", {"team_name": "Red", "color": "#f00"})
+        await phones.send("bob", "join_team", {"team_id": red["team_id"]})
+        blue = await phones.send("carol", "create_team", {"team_name": "Blue", "color": "#00f"})
+        await phones.send("dave", "join_team", {"team_id": blue["team_id"]})
+        await phones.send("alice", "start_personality_selection")
+        await phones.send("alice", "assign_personality", {"personality_id": "noir"})
+        await phones.drop_all()
+
+    # Mid personality selection: Red has picked noir for Blue, Blue hasn't picked.
+    with running_server(port, tmp_path):
+        views = await phones.rejoin(room_code, ids)
+        assert views["alice"]["status"] == "personality_selection"
+        assert views["alice"]["my_pick"]["personality_id"] == "noir"
+        assert views["carol"]["my_pick"] is None
+        assert [t["has_picked"] for t in views["carol"]["teams"]] == [True, False]
+        assert "noir" not in str(views["carol"])
+        melodrama = {"personality_id": "melodrama"}
+        assert await phones.send("carol", "assign_personality", melodrama) is None
+        prompt = {"prompt": "a haunted vending machine"}
+        assert await phones.send("bob", "submit_prompt", prompt) is None
+        await phones.drop_all()
+
+    # Mid round: Red has its script and Blue hasn't guessed yet.
+    with running_server(port, tmp_path):
+        views = await phones.rejoin(room_code, ids)
+        assert views["alice"]["current_round"]["phase"] == "guessing"
+        assert views["alice"]["current_round"]["prompt"] == "a haunted vending machine"
+        assert len(views["alice"]["current_round"]["script"]["roles"]) == 2
+        assert views["dave"]["current_round"]["prompt"] is None
+        assert views["dave"]["current_round"]["script"] is None
+        assert "melodrama" not in str(views["alice"])
+        assert "noir" not in str(views["dave"])
+        guess = {"guess": "cursed snack machine"}
+        assert await phones.send("carol", "submit_guess", guess) is None
+        assert await phones.send("alice", "pick_winning_guess", {"guess_index": 0}) is None
+        assert await phones.send("bob", "guess_personality", melodrama) is None
+        await phones.drop_all()
+
+    # The next round: Blue acts, Red's personality has been revealed, and Red leads 2-1.
+    with running_server(port, tmp_path):
+        views = await phones.rejoin(room_code, ids)
+        next_round = views["carol"]["current_round"]
+        assert (next_round["round_number"], next_round["phase"]) == (1, "waiting_for_prompt")
+        assert [t["score"] for t in views["carol"]["teams"]] == [2, 1]
+        assert [t["personality_id"] for t in views["carol"]["teams"]] == ["melodrama", None]
+        assert await phones.send("dave", "submit_prompt", {"prompt": "penguins unionize"}) is None
+        await phones.drop_all()
+
+    game = await SQLiteStorage(tmp_path / DATABASE_FILE).get_game_by_room_code(room_code)
+    assert game is not None
+    assert game.rounds[-1].prompt == "penguins unionize"
+    assert game.rounds[-1].script is not None

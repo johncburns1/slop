@@ -67,12 +67,12 @@ async def lobby(t: Table, *names: str, **settings: Any) -> str:
     return str(created["room_code"])
 
 
-async def two_teams_with_personalities(t: Table, **settings: Any) -> None:
+async def two_teams_with_personalities(t: Table, **settings: Any) -> str:
     """alice and bob are Red, carol and dave are Blue, and both have personalities.
 
-    Red picks noir for Blue, and Blue picks melodrama for Red.
+    Red picks noir for Blue, and Blue picks melodrama for Red. Returns the room code.
     """
-    await lobby(t, "alice", "bob", "carol", "dave", **settings)
+    room_code = await lobby(t, "alice", "bob", "carol", "dave", **settings)
     red = await t.send("alice", "create_team", {"team_name": "Red", "color": "#f00"})
     await t.send("bob", "join_team", {"team_id": red["team_id"]})
     blue = await t.send("carol", "create_team", {"team_name": "Blue", "color": "#00f"})
@@ -80,6 +80,7 @@ async def two_teams_with_personalities(t: Table, **settings: Any) -> None:
     await t.send("alice", "start_personality_selection")
     await t.send("alice", "assign_personality", {"personality_id": "noir"})
     await t.send("carol", "assign_personality", {"personality_id": "melodrama"})
+    return room_code
 
 
 async def test_players_create_join_form_teams_and_assign_personalities() -> None:
@@ -223,3 +224,76 @@ async def test_leaving_removes_the_player_but_disconnecting_does_not() -> None:
         assert game is not None
         assert game.status == GameStatus.LOBBY
         assert [p.name for p in game.players] == ["alice", "carol"]
+
+
+async def player_ids(t: Table, room_code: str) -> dict[str, str]:
+    game = await t.storage.get_game_by_room_code(room_code)
+    assert game is not None
+    return {p.name: p.id for p in game.players}
+
+
+async def reconnect(t: Table, name: str, room_code: str, player_id: str) -> Any:
+    """Drop the player's connection, connect again, and rejoin. Returns the ack."""
+    await t.players.pop(name).client.disconnect()
+    await t.connect(name)
+    return await t.send(name, "rejoin_game", {"room_code": room_code, "player_id": player_id})
+
+
+async def test_players_reconnect_mid_round_and_see_only_what_they_may() -> None:
+    async with table() as t:
+        room_code = await two_teams_with_personalities(t)
+        ids = await player_ids(t, room_code)
+        await t.send("alice", "submit_prompt", {"prompt": "a haunted vending machine"})
+        await t.send("carol", "submit_guess", {"guess": "possessed snack machine"})
+
+        acting = await reconnect(t, "bob", room_code, ids["bob"])
+        guessing = await reconnect(t, "dave", room_code, ids["dave"])
+
+        assert acting["player_id"] == ids["bob"]
+        assert acting["status"] == guessing["status"] == "playing"
+        for view in (acting, guessing):
+            assert view["current_round"]["phase"] == "guessing"
+            assert [g["guess"] for g in view["current_round"]["guesses"]] == [
+                "possessed snack machine"
+            ]
+            assert [team["personality_id"] for team in view["teams"]] == [None, None]
+        assert acting["current_round"]["prompt"] == "a haunted vending machine"
+        assert [r["player_id"] for r in acting["current_round"]["script"]["roles"]] == [
+            ids["alice"],
+            ids["bob"],
+        ]
+        assert acting["my_pick"]["personality_id"] == "noir"
+        assert "melodrama" not in str(acting)  # Red's own personality
+        assert guessing["current_round"]["prompt"] is None
+        assert guessing["current_round"]["script"] is None
+        assert "haunted" not in str(guessing)
+        assert guessing["my_pick"]["personality_id"] == "melodrama"
+        assert "noir" not in str(guessing)  # Blue's own personality
+        assert (await t.types("alice"))[-2:] == ["PlayerReconnected"] * 2
+        assert "PlayerJoined" not in await t.types("bob")
+
+        # The rejoined players carry on, and private events reach their new connections.
+        assert await t.send("bob", "pick_winning_guess", {"guess_index": 0}) is None
+        await t.send("bob", "guess_personality", {"personality_id": "melodrama"})
+        await t.send("dave", "submit_prompt", {"prompt": "penguins unionize"})
+        assert "ScriptGenerated" in await t.types("dave")
+        for name in t.players:
+            assert await t.errors(name) == []
+
+
+async def test_rejoining_an_unknown_room_or_player_is_an_error_to_the_sender() -> None:
+    async with table() as t:
+        room_code = await lobby(t, "alice")
+        await t.connect("stranger")
+
+        no_game = await t.send("stranger", "rejoin_game", {"room_code": "ZZZZ", "player_id": "x"})
+        no_player = await t.send(
+            "stranger", "rejoin_game", {"room_code": room_code, "player_id": "x"}
+        )
+        still_out = await t.send("stranger", "create_team", {"team_name": "R", "color": "#f00"})
+
+        assert no_game["code"] == "game_not_found"
+        assert (no_player["code"], no_player["request"]) == ("rule_broken", "rejoin_game")
+        assert still_out["code"] == "not_in_game"
+        assert await t.errors("stranger") == [no_game, no_player, still_out]
+        assert await t.errors("alice") == []
