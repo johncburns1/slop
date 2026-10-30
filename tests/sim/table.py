@@ -4,11 +4,12 @@ Each ``step`` runs one action: the first eager action any bot has, in seat
 order, or, once nobody has one, the first deferred action. So everyone forms
 their team before the host closes the lobby, and every scripted guess is in
 before the acting team judges. ``play`` steps until every bot has seen the game
-end. Call ``step`` directly to do something between actions, such as dropping
-a bot's connection (SLOP-12).
+end. Call ``step`` or ``step_until`` directly to do something between
+actions, such as dropping a bot's connection. Bots that have dropped their
+connection sit out until they rejoin.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from slop.domain.events import GameCompleted, PromptSubmitted
 from tests.sim.bot import Bot, BotScript
@@ -45,13 +46,14 @@ class Table:
         return cls(bots)
 
     async def step(self) -> bool:
-        """Run one action, and return False if no bot had one."""
-        for bot in self.bots:
+        """Run one action, and return False if no connected bot had one."""
+        connected = [bot for bot in self.bots if bot.connected]
+        for bot in connected:
             action = bot.eager_action(self.answer)
             if action is not None:
                 await action()
                 return True
-        for bot in self.bots:
+        for bot in connected:
             action = bot.deferred_action()
             if action is not None:
                 await action()
@@ -75,6 +77,22 @@ class Table:
         completed = self.bots[0].view().completed
         assert completed is not None
         return completed
+
+    async def step_until(
+        self, condition: Callable[["Table"], bool], *, max_steps: int = MAX_STEPS
+    ) -> None:
+        """Step until ``condition(self)`` holds, checking before each step.
+
+        Raises:
+            SimulationStalledError: If the bots run out of actions, or steps,
+                before then
+        """
+        for _ in range(max_steps):
+            if condition(self):
+                return
+            if not await self.step():
+                raise SimulationStalledError(self._stalled_at())
+        raise SimulationStalledError(f"Condition still false after {max_steps} steps")
 
     def answer(self, round_number: int) -> str:
         """The prompt submitted in this round, as only the acting team saw it."""
