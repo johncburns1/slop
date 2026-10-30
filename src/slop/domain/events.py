@@ -47,6 +47,14 @@ class PlayerJoined(GameEvent):
     socket_id: str
 
 
+class PlayerReconnected(GameEvent):
+    """Emitted when a player already in the game comes back on a new connection."""
+
+    event_type: str = "PlayerReconnected"
+    player_id: str
+    socket_id: str
+
+
 class PlayerLeft(GameEvent):
     """Emitted when a player leaves a game."""
 

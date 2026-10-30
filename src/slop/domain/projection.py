@@ -28,6 +28,7 @@ from slop.domain.events import (
     PlayerJoined,
     PlayerJoinedTeam,
     PlayerLeft,
+    PlayerReconnected,
     PromptSubmitted,
     RoleAssigned,
     RoundCompleted,
@@ -88,6 +89,8 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
                     joined_at=event.timestamp,
                 )
             )
+        case PlayerReconnected():
+            _player(game, event.player_id).update_socket_id(event.socket_id)
         case PlayerLeft():
             player = _player(game, event.player_id)
             if player.team_id is not None:
