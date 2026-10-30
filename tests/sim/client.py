@@ -1,7 +1,8 @@
 """What a player can do, and what they have received: the interface simulated players use.
 
 ``GameClient`` is everything a player's device can do in a game. Bots talk only
-to it, so the same bot can later drive a real server over Socket.IO.
+to it, so the same bot can drive a real server over Socket.IO (see
+``socketio_client``). ``GameServer`` is where clients come from.
 ``InProcessClient`` implements it by calling the application use cases
 directly, with the stand-ins from ``InProcessServer``; its inbox is whatever the
 recording realtime stand-in delivered to its sockets while they were connected.
@@ -101,6 +102,29 @@ class GameClient(Protocol):
         """Every event this player has received, on any connection, in order."""
         ...
 
+    async def caught_up(self) -> None:
+        """Wait until every event already sent to this player has arrived."""
+        ...
+
+
+class GameServer(Protocol):
+    """A server bots can play on."""
+
+    @property
+    def transport(self) -> str:
+        """How clients reach it, as shown in evidence."""
+        ...
+
+    async def create_game(
+        self, *, rounds_per_team: int = 1, content_tone: ContentTone = ContentTone.FAMILY
+    ) -> str:
+        """Create a game and return its room code."""
+        ...
+
+    async def connect_player(self, seat: int) -> GameClient:
+        """Connect the player in this seat, counting from 1."""
+        ...
+
 
 Boot = Callable[[RecordingRealtime], GameDeps]
 """Builds a server's dependencies around a fresh realtime stand-in."""
@@ -108,6 +132,8 @@ Boot = Callable[[RecordingRealtime], GameDeps]
 
 class InProcessServer:
     """A game server made of the use cases and stand-ins, with nothing on the network."""
+
+    transport = "in-process"
 
     def __init__(self, boot: Boot) -> None:
         self._boot = boot
@@ -167,6 +193,9 @@ class InProcessServer:
         client = InProcessClient(self, socket_id)
         self._clients.append(client)
         return client
+
+    async def connect_player(self, seat: int) -> "InProcessClient":
+        return self.connect(f"socket-{seat}")
 
 
 class InProcessClient:
@@ -267,6 +296,9 @@ class InProcessClient:
         if not self._connected:
             return list(self._earlier)
         return self._earlier + self._server.realtime.received_by(self._socket_id)
+
+    async def caught_up(self) -> None:
+        """Nothing to wait for: events are delivered before each call returns."""
 
     def _check_connected(self) -> None:
         if not self._connected:

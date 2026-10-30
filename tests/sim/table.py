@@ -4,16 +4,19 @@ Each ``step`` runs one action: the first eager action any bot has, in seat
 order, or, once nobody has one, the first deferred action. So everyone forms
 their team before the host closes the lobby, and every scripted guess is in
 before the acting team judges. ``play`` steps until every bot has seen the game
-end. Call ``step`` or ``step_until`` directly to do something between
-actions, such as dropping a bot's connection. Bots that have dropped their
-connection sit out until they rejoin.
+end. After every action, ``step`` waits until each connected bot has received
+everything sent so far, so over a network no bot decides on a stale inbox.
+Call ``step`` or ``step_until`` directly to do something between actions, such
+as dropping a bot's connection. Bots that have dropped their connection sit
+out until they rejoin.
 """
 
+import asyncio
 from collections.abc import Callable, Sequence
 
 from slop.domain.events import GameCompleted, PromptSubmitted
 from tests.sim.bot import Bot, BotScript
-from tests.sim.client import InProcessServer
+from tests.sim.client import GameServer
 
 MAX_STEPS = 1000
 
@@ -30,7 +33,7 @@ class Table:
 
     @classmethod
     async def seat(
-        cls, server: InProcessServer, room_code: str, scripts: Sequence[BotScript]
+        cls, server: GameServer, room_code: str, scripts: Sequence[BotScript]
     ) -> "Table":
         """Connect a bot for each script and join them all to the game, in order.
 
@@ -38,12 +41,14 @@ class Table:
         happens after they join.
         """
         bots = [
-            Bot(server.connect(f"socket-{seat}"), script, is_host=seat == 1)
+            Bot(await server.connect_player(seat), script, is_host=seat == 1)
             for seat, script in enumerate(scripts, start=1)
         ]
         for bot in bots:
             await bot.join(room_code)
-        return cls(bots)
+        table = cls(bots)
+        await table.caught_up()
+        return table
 
     async def step(self) -> bool:
         """Run one action, and return False if no connected bot had one."""
@@ -52,13 +57,19 @@ class Table:
             action = bot.eager_action(self.answer)
             if action is not None:
                 await action()
+                await self.caught_up()
                 return True
         for bot in connected:
             action = bot.deferred_action()
             if action is not None:
                 await action()
+                await self.caught_up()
                 return True
         return False
+
+    async def caught_up(self) -> None:
+        """Wait until every connected bot has received every event sent so far."""
+        await asyncio.gather(*(bot.client.caught_up() for bot in self.bots if bot.connected))
 
     async def play(self, *, max_steps: int = MAX_STEPS) -> GameCompleted:
         """Step until every bot has received ``GameCompleted``, and return it.
