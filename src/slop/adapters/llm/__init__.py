@@ -4,6 +4,7 @@ Implementations for various LLM providers (OpenAI, Anthropic, etc.)
 that implement the LLMPort interface.
 """
 
+from slop.adapters.llm.claude import ClaudeLLMAdapter
 from slop.adapters.llm.stand_in import StandInLLMAdapter
 
-__all__ = ["StandInLLMAdapter"]
+__all__ = ["ClaudeLLMAdapter", "StandInLLMAdapter"]

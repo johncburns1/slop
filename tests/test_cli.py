@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 import socketio
 
+from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
 from slop.adapters.storage import SQLiteStorage
 from slop.api.rate_limit import RateLimit
 from slop.cli import (
@@ -24,7 +25,9 @@ from slop.cli import (
     DEFAULT_DATA_DIR,
     DEFAULT_HOST,
     DEFAULT_LLM,
+    DEFAULT_LLM_MODEL,
     DEFAULT_PORT,
+    LLM_ADAPTERS,
     ServeSettings,
     parse_args,
 )
@@ -34,6 +37,8 @@ from slop.domain.expiry import ExpiryPolicy
 def test_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR", "SLOP_LLM", "SLOP_RATE_LIMIT"):
         monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.delenv("SLOP_LLM_MODEL", raising=False)
 
     for name in ("SLOP_RATE_BURST", "SLOP_EXPIRE_IDLE_MINUTES", "SLOP_EXPIRE_FINISHED_MINUTES"):
         monkeypatch.delenv(name, raising=False)
@@ -85,6 +90,42 @@ def test_serve_reads_llm_from_flag_or_env_var(monkeypatch: pytest.MonkeyPatch) -
 
     assert parse_args(["serve"]).llm == "stand-in"
     assert parse_args(["serve", "--llm", "stand-in"]).llm == "stand-in"
+
+
+def test_serve_selects_claude_from_flag_or_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("SLOP_LLM_MODEL", raising=False)
+    monkeypatch.delenv("SLOP_LLM", raising=False)
+
+    assert parse_args(["serve", "--llm", "claude"]).llm == "claude"
+    monkeypatch.setenv("SLOP_LLM", "claude")
+    settings = parse_args(["serve"])
+    assert settings.llm == "claude"
+    assert settings.llm_model == DEFAULT_LLM_MODEL == "claude-sonnet-5-5"
+
+
+def test_serve_reads_llm_model_from_flag_or_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_LLM_MODEL", "claude-haiku-5-5")
+
+    assert parse_args(["serve"]).llm_model == "claude-haiku-5-5"
+    assert parse_args(["serve", "--llm-model", "claude-opus-5-5"]).llm_model == "claude-opus-5-5"
+
+
+def test_serve_refuses_claude_without_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve", "--llm", "claude"])
+
+
+def test_each_llm_name_builds_its_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    claude = LLM_ADAPTERS["claude"]("claude-haiku-5-5")
+
+    assert isinstance(LLM_ADAPTERS["stand-in"]("ignored"), StandInLLMAdapter)
+    assert isinstance(claude, ClaudeLLMAdapter)
+    assert claude.model == "claude-haiku-5-5"
 
 
 def test_serve_rejects_unknown_llm(monkeypatch: pytest.MonkeyPatch) -> None:
