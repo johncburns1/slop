@@ -1,12 +1,12 @@
 // Lobby: the room code, who's here, and forming teams until the host starts.
 
-import { attempt, errorBox, h } from "../dom.js";
+import { attempt, errorBox, h, roomCodeBox, setRoomCode } from "../dom.js";
 
 const TEAM_COLORS = ["#E53935", "#1E88E5", "#43A047", "#FDD835", "#8E24AA", "#FB8C00", "#00ACC1", "#D81B60"];
 
 export function mount(root, game) {
-  const code = h("p", { class: "room-code", "aria-label": "Room code" });
-  const leaveButton = h("button", { type: "button", class: "link" }, "Leave");
+  const code = roomCodeBox();
+  const leaveButton = h("button", { type: "button", class: "link" }, "exit");
   const leaveError = errorBox();
   leaveButton.addEventListener("click", () => {
     if (confirm("Leave this game?")) attempt(leaveButton, leaveError, () => game.leave());
@@ -16,7 +16,7 @@ export function mount(root, game) {
   const teamError = errorBox();
   const unassigned = h("div", { class: "unassigned" });
 
-  const teamName = h("input", { id: "team-name", maxlength: 20, placeholder: "Team name", autocomplete: "off" });
+  const teamName = h("input", { id: "team-name", maxlength: 20, placeholder: "team name", autocomplete: "off" });
   const swatches = h("div", { class: "swatches", role: "radiogroup", "aria-label": "Team color" });
   for (const [i, color] of TEAM_COLORS.entries()) {
     swatches.append(
@@ -40,7 +40,7 @@ export function mount(root, game) {
         if (ok) teamName.value = "";
       },
     },
-    h("h2", {}, "New team"),
+    h("h2", {}, "new team"),
     h("label", { for: "team-name", class: "visually-hidden" }, "Team name"),
     teamName,
     swatches,
@@ -53,16 +53,25 @@ export function mount(root, game) {
   const hostError = errorBox();
   shuffleButton.addEventListener("click", () => attempt(shuffleButton, hostError, () => game.shuffleTeams()));
   startButton.addEventListener("click", () => attempt(startButton, hostError, () => game.startPersonalitySelection()));
-  const hostControls = h("div", { class: "card host" }, h("h2", {}, "You're the host"), shuffleButton, startButton, hostError);
-  const waitingNote = h("p", { class: "note" });
+  const hostControls = h(
+    "div",
+    { class: "card host" },
+    h("h2", {}, "sudo"),
+    h("p", { class: "note" }, "you're the host. you start the game."),
+    shuffleButton,
+    startButton,
+    hostError,
+  );
+  const waitingNote = h("p", { class: "note cursor" });
 
   root.append(
     h(
       "section",
       { class: "screen lobby" },
-      h("header", { class: "lobby-header" }, h("div", {}, h("p", { class: "eyebrow" }, "Room code"), code), leaveButton),
+      h("header", { class: "lobby-header" }, h("p", { class: "eyebrow" }, "room code"), leaveButton),
+      code,
       leaveError,
-      h("h2", { class: "section-title" }, "Teams"),
+      h("h2", { class: "section-title" }, "teams"),
       teamList,
       teamError,
       unassigned,
@@ -73,9 +82,28 @@ export function mount(root, game) {
   );
 
   function joinButton(team) {
-    const button = h("button", { type: "button", class: "small" }, "Join");
+    const button = h("button", { type: "button", class: "small" }, "join");
     button.addEventListener("click", () => attempt(button, teamError, () => game.joinTeam(team.id)));
     return button;
+  }
+
+  // Players as a file tree: ├─ ana <host> / └─ ben <you>
+  function playerTree(view, players) {
+    return h(
+      "ul",
+      { class: "players" },
+      players.map((p, i) => {
+        const isMe = p.id === view.player_id;
+        return h(
+          "li",
+          { class: isMe ? "player me" : "player" },
+          h("span", { class: "branch", "aria-hidden": "true" }, i === players.length - 1 ? "└─ " : "├─ "),
+          p.name,
+          p.is_host ? h("span", { class: "tag" }, " <host>") : null,
+          isMe ? h("span", { class: "tag" }, " <you>") : null,
+        );
+      }),
+    );
   }
 
   let lastTeams = null;
@@ -88,44 +116,33 @@ export function mount(root, game) {
     lastTeams = teams;
     const me = game.me();
     const byId = new Map(view.players.map((p) => [p.id, p]));
-    const playerChip = (p) => {
-      const isMe = p.id === view.player_id;
-      return h(
-        "li",
-        { class: isMe ? "player me" : "player" },
-        p.name,
-        p.is_host ? h("span", { class: "tag" }, "host") : null,
-        isMe ? h("span", { class: "tag" }, "you") : null,
-      );
-    };
+    const max = view.settings.max_players_per_team;
 
-    code.textContent = view.room_code;
+    setRoomCode(code, view.room_code);
 
     teamList.replaceChildren(
       ...view.teams.map((team) => {
-        const full = team.player_ids.length >= view.settings.max_players_per_team;
         const mine = team.id === view.team_id;
+        const full = team.player_ids.length >= max;
         return h(
           "li",
           { class: mine ? "team mine" : "team", style: { "--team": team.color } },
           h(
             "div",
             { class: "team-head" },
-            h("span", { class: "team-dot", "aria-hidden": "true" }),
+            h("span", { class: "team-dot", "aria-hidden": "true" }, "■"),
             h("span", { class: "team-name" }, team.name),
-            h("span", { class: "team-count" }, `${team.player_ids.length}/${view.settings.max_players_per_team}`),
+            h("span", { class: "team-count" }, `${team.player_ids.length}/${max}`),
             mine || full ? null : joinButton(team),
           ),
-          h("ul", { class: "players" }, team.player_ids.map((id) => byId.get(id)).filter(Boolean).map(playerChip)),
+          playerTree(view, team.player_ids.map((id) => byId.get(id)).filter(Boolean)),
         );
       }),
     );
-    if (view.teams.length === 0) teamList.append(h("li", { class: "empty" }, "No teams yet. Make one below."));
+    if (view.teams.length === 0) teamList.append(h("li", { class: "empty" }, "no teams yet. make one below."));
 
     const loose = view.players.filter((p) => !p.team_id);
-    unassigned.replaceChildren(
-      ...(loose.length ? [h("h3", {}, "No team yet"), h("ul", { class: "players" }, loose.map(playerChip))] : []),
-    );
+    unassigned.replaceChildren(...(loose.length ? [h("h3", {}, "no team yet"), playerTree(view, loose)] : []));
 
     // Taken colors can't be picked; move the choice off one that was just taken.
     const taken = new Set(view.teams.map((t) => t.color.toLowerCase()));
@@ -143,7 +160,7 @@ export function mount(root, game) {
     hostControls.hidden = !isHost;
     const host = view.players.find((p) => p.is_host);
     waitingNote.hidden = isHost;
-    waitingNote.textContent = host ? `Waiting for ${host.name} to start the game…` : "Waiting for the host to start…";
+    waitingNote.textContent = `waiting for ${host ? host.name : "the host"} to start the game`;
   }
 
   return { update, unmount() {} };

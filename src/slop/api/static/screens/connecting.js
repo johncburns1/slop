@@ -3,6 +3,6 @@
 import { h } from "../dom.js";
 
 export function mount(root) {
-  root.append(h("section", { class: "screen center" }, h("p", { class: "note" }, "Getting you back in…")));
+  root.append(h("section", { class: "screen center" }, h("p", { class: "note cursor" }, "reconnecting to your game")));
   return { update() {}, unmount() {} };
 }

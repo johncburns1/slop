@@ -4,6 +4,16 @@ import { attempt, errorBox, h } from "../dom.js";
 
 const NAME_KEY = "slop.name";
 
+const LOGO = String.raw` ____  _     ___  ____
+/ ___|| |   / _ \|  _ \
+\___ \| |  | | | | |_) |
+ ___) | |__| |_| |  __/
+|____/|_____\___/|_|`;
+// Slop dripping off the logo.
+const DRIPS = String.raw`  ' :   |    :    ;
+  .     '         '
+        .`;
+
 export function mount(root, game) {
   const roomFromLink = new URLSearchParams(location.search).get("room") ?? "";
 
@@ -11,7 +21,7 @@ export function mount(root, game) {
     id: "player-name",
     autocomplete: "nickname",
     maxlength: 20,
-    placeholder: "What should we call you?",
+    placeholder: "your name",
     value: localStorage.getItem(NAME_KEY) ?? "",
   });
   const room = h("input", {
@@ -21,7 +31,7 @@ export function mount(root, game) {
     autocapitalize: "characters",
     spellcheck: "false",
     maxlength: 6,
-    placeholder: "ABCD",
+    placeholder: "____",
     value: roomFromLink.toUpperCase(),
     oninput: () => (room.value = room.value.toUpperCase()),
   });
@@ -30,9 +40,9 @@ export function mount(root, game) {
 
   const tones = h(
     "div",
-    { class: "segmented", role: "radiogroup", "aria-label": "Content setting" },
-    toneOption("family", "Family", "Clean fun for all ages", true),
-    toneOption("adult", "Adult", "Anything goes", false),
+    { class: "options", role: "radiogroup", "aria-label": "Content setting" },
+    toneOption("family", "family", "clean fun, all ages", true),
+    toneOption("adult", "adult", "anything goes", false),
   );
   const createButton = h("button", { type: "submit", class: "secondary" }, "Create game");
   const createError = errorBox();
@@ -40,7 +50,7 @@ export function mount(root, game) {
   function playerName(errors) {
     localStorage.setItem(NAME_KEY, name.value.trim());
     if (name.value.trim()) return name.value;
-    errors.textContent = "Enter your name first";
+    errors.textContent = "enter your name first";
     errors.hidden = false;
     name.focus();
     return null;
@@ -56,8 +66,8 @@ export function mount(root, game) {
         if (player) await attempt(joinButton, joinError, () => game.join(room.value, player));
       },
     },
-    h("h2", {}, "Join a game"),
-    h("label", { for: "room-code" }, "Room code"),
+    h("h2", {}, "join a game"),
+    h("label", { for: "room-code", class: "prompt" }, "room code"),
     room,
     joinButton,
     joinError,
@@ -74,7 +84,7 @@ export function mount(root, game) {
         if (player) await attempt(createButton, createError, () => game.createAndJoin(tone, player));
       },
     },
-    h("h2", {}, "Start a new game"),
+    h("h2", {}, "new game"),
     tones,
     createButton,
     createError,
@@ -84,10 +94,20 @@ export function mount(root, game) {
     h(
       "section",
       { class: "screen home" },
-      h("header", { class: "brand" }, h("h1", {}, "Slop"), h("p", {}, "Act out what the AI wrote. Guess the prompt.")),
-      h("div", { class: "field" }, h("label", { for: "player-name" }, "Your name"), name),
+      h(
+        "header",
+        { class: "brand" },
+        h(
+          "h1",
+          { "aria-label": "Slop" },
+          h("pre", { class: "logo", "aria-hidden": "true" }, LOGO),
+          h("pre", { class: "drips", "aria-hidden": "true" }, DRIPS),
+        ),
+        h("p", { class: "tagline" }, "act out what the AI wrote. guess the prompt."),
+      ),
+      h("div", { class: "field" }, h("label", { for: "player-name", class: "prompt" }, "name"), name),
       joinForm,
-      h("p", { class: "or" }, "or"),
+      h("p", { class: "or", "aria-hidden": "true" }, "-- or --"),
       createForm,
     ),
   );
@@ -99,9 +119,9 @@ export function mount(root, game) {
 function toneOption(value, label, hint, checked) {
   return h(
     "label",
-    { class: "segment" },
+    { class: "option" },
     h("input", { type: "radio", name: "content-tone", value, checked }),
-    h("span", { class: "segment-label" }, label),
-    h("span", { class: "segment-hint" }, hint),
+    h("span", { class: "option-label" }, label),
+    h("span", { class: "option-hint" }, hint),
   );
 }

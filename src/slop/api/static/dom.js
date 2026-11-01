@@ -31,7 +31,7 @@ export async function attempt(button, errorBox, action) {
     await action();
     return true;
   } catch (error) {
-    errorBox.textContent = error?.code ? error.message : "Couldn't reach the server. Try again.";
+    errorBox.textContent = error?.code ? error.message : "couldn't reach the server. try again.";
     errorBox.hidden = false;
     return false;
   } finally {
@@ -42,4 +42,21 @@ export async function attempt(button, errorBox, action) {
 /** An empty inline error box, hidden until `attempt` fills it. */
 export function errorBox() {
   return h("p", { class: "error", role: "alert", hidden: true });
+}
+
+/** Draw `text` in a double-line box, as text: ╔═══╗ / ║ X ║ / ╚═══╝. */
+export function asciiBox(text) {
+  const inner = ` ${text} `;
+  const bar = "═".repeat(inner.length);
+  return `╔${bar}╗\n║${inner}║\n╚${bar}╝`;
+}
+
+/** A room code drawn big in a box, spaced out so it reads across a room. */
+export function roomCodeBox() {
+  return h("pre", { class: "room-code", "aria-label": "Room code" });
+}
+
+export function setRoomCode(box, code) {
+  box.textContent = asciiBox(code.split("").join(" "));
+  box.setAttribute("aria-label", `Room code ${code}`);
 }
