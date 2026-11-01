@@ -127,3 +127,34 @@ async def test_expiry_keeps_sweeping_after_a_failure(caplog: pytest.LogCaptureFi
 
     assert await storage.get_snapshot("game-1") is None
     assert "Expiring games failed" in caplog.text
+
+
+def fetch(url: str) -> tuple[int, str, str]:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        return response.status, response.headers["content-type"], response.read().decode()
+
+
+async def test_served_app_hosts_the_web_client_alongside_health_and_socketio() -> None:
+    """The web client is served at `/`, its scripts as JavaScript modules, and
+    /health and Socket.IO messages still work on the same server."""
+    async with serving(create_app()) as url:
+        status, content_type, page = await asyncio.to_thread(fetch, f"{url}/")
+        assert status == 200
+        assert content_type.startswith("text/html")
+        assert '<script type="module" src="/app.js">' in page
+
+        for script in ("/app.js", "/game.js", "/screens/lobby.js", "/vendor/socket.io.esm.min.js"):
+            status, content_type, _ = await asyncio.to_thread(fetch, f"{url}{script}")
+            assert status == 200
+            assert content_type.startswith("text/javascript"), script
+
+        health = await asyncio.to_thread(fetch_json, f"{url}/health")
+        assert health == {"status": "ok", "version": __version__}
+
+        player = Listener()
+        await player.connect(url)
+        try:
+            created = await player.client.call("create_game", {"content_tone": "family"}, timeout=5)
+            assert set(created) == {"game_id", "room_code"}
+        finally:
+            await player.client.disconnect()
