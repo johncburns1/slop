@@ -9,8 +9,10 @@ from slop.adapters.llm import StandInLLMAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import SocketIORealtime
 from slop.api.messages import GameMessages
+from slop.api.rate_limit import RateLimit, RateLimiter
 from slop.api.schemas import HealthResponse
 from slop.application.engine import GameDeps
+from slop.ports.clock import Clock
 from slop.ports.llm import LLMPort
 from slop.ports.storage import StoragePort
 
@@ -27,22 +29,26 @@ def create_app(
     *,
     storage: StoragePort | None = None,
     llm: LLMPort | None = None,
+    clock: Clock | None = None,
+    rate_limit: RateLimit | None = None,
 ) -> FastAPI:
     """Build the ASGI app, with the Socket.IO endpoint mounted at `/socket.io`.
 
     Client messages there play the game (see `slop.api.messages`). Games are
     kept in ``storage`` (in memory if None) and scripts come from ``llm`` (the
-    stand-in if None).
+    stand-in if None). Each connection may send messages at ``rate_limit``
+    (the defaults if None), timed by ``clock`` (the system clock if None).
     """
     realtime = realtime or SocketIORealtime()
+    clock = clock or SystemClock()
     deps = GameDeps(
         storage=storage or InMemoryStorage(),
         realtime=realtime,
-        clock=SystemClock(),
+        clock=clock,
         ids=RandomIds(),
         llm=llm or StandInLLMAdapter(),
     )
-    GameMessages(deps, realtime).register()
+    GameMessages(deps, realtime, RateLimiter(rate_limit or RateLimit(), clock)).register()
 
     app = FastAPI(title="Slop", version=__version__)
     app.add_api_route("/health", health, methods=["GET"], response_model=HealthResponse)

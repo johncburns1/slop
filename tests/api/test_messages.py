@@ -3,11 +3,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from slop.adapters.clock import FixedClock
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import SocketIORealtime
 from slop.api import create_app
+from slop.api.rate_limit import RateLimit
 from slop.domain.events import GameEvent
 from slop.domain.game import GameStatus
 from tests.socketio_clients import Listener, serving
@@ -44,9 +47,9 @@ class Table:
 
 
 @asynccontextmanager
-async def table() -> AsyncIterator[Table]:
+async def table(**app_options: Any) -> AsyncIterator[Table]:
     realtime, storage = SocketIORealtime(), InMemoryStorage()
-    async with serving(create_app(realtime, storage=storage)) as url:
+    async with serving(create_app(realtime, storage=storage, **app_options)) as url:
         seated = Table(realtime, storage, url, {})
         try:
             yield seated
@@ -297,3 +300,32 @@ async def test_rejoining_an_unknown_room_or_player_is_an_error_to_the_sender() -
         assert still_out["code"] == "not_in_game"
         assert await t.errors("stranger") == [no_game, no_player, still_out]
         assert await t.errors("alice") == []
+
+
+async def test_a_flooding_client_is_rate_limited_alone() -> None:
+    """The clock stands still, so no tokens come back until the test moves it."""
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
+    async with table(clock=clock, rate_limit=RateLimit(per_second=10, burst=20)) as t:
+        await t.connect("flooder")
+        lookup = {"room_code": "ZZZZ", "player_name": "F"}
+
+        flood = [await t.send("flooder", "join_game", lookup) for _ in range(25)]
+
+        assert [reply["code"] for reply in flood] == ["game_not_found"] * 20 + ["rate_limited"] * 5
+        assert flood[-1] == {
+            "code": "rate_limited",
+            "message": "Too many messages, slow down",
+            "request": "join_game",
+        }
+        assert await t.errors("flooder") == flood
+        room_code = await lobby(t, "alice")
+        assert await t.send("alice", "create_team", {"team_name": "Red", "color": "#f00"})
+        assert await t.errors("alice") == []
+        assert (await t.types("alice"))[-1] == "PlayerJoinedTeam"
+        still_flooding = await t.send("flooder", "join_game", {**lookup, "room_code": room_code})
+        assert still_flooding["code"] == "rate_limited"
+        assert await t.types("alice") == ["PlayerJoined", "TeamFormed", "PlayerJoinedTeam"]
+
+        clock.advance(timedelta(seconds=1))
+        joined = await t.send("flooder", "join_game", {**lookup, "room_code": room_code})
+        assert "player_id" in joined

@@ -189,7 +189,9 @@ class PlayerViewReply(Reply):
     my_pick: PersonalityPick | None
 
 
-ErrorCode = Literal["invalid_payload", "not_in_game", "game_not_found", "rule_broken"]
+ErrorCode = Literal[
+    "invalid_payload", "not_in_game", "game_not_found", "rule_broken", "rate_limited"
+]
 
 
 class ErrorMessage(BaseModel):
