@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, Private, commit, load_game
+from slop.application.moderation import check_player_text
 from slop.domain.ai_personality import AIPersonality
 from slop.domain.errors import GameRuleError
 from slop.domain.events import (
@@ -13,7 +14,7 @@ from slop.domain.events import (
     ScriptGenerationFailed,
     ScriptReady,
 )
-from slop.domain.game import Game
+from slop.domain.game import ContentTone, Game
 from slop.domain.personalities import get_personality
 from slop.domain.round import Round
 from slop.domain.script import Script
@@ -37,14 +38,16 @@ async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
     """Generate the round's script from the prompt and hand out one role per acting player.
 
     Only the acting team receives the prompt, script, and roles; the room is
-    told only that the script is ready. If the LLM fails ``SCRIPT_ATTEMPTS``
-    times, the round stays waiting for a prompt and only the acting team is
-    told (``ScriptGenerationFailed``) so they can submit again.
+    told only that the script is ready. A script that moderation blocks
+    counts as a failed attempt. If ``SCRIPT_ATTEMPTS`` attempts fail, the
+    round stays waiting for a prompt and only the acting team is told
+    (``ScriptGenerationFailed``) so they can submit again.
 
     Raises:
         GameNotFoundError: If there is no such game
         GameRuleError: If the round isn't waiting for a prompt, the player
             isn't on the acting team, or the prompt isn't 1 to 6 words
+        ContentBlockedError: If moderation blocks the prompt
     """
     game = await load_game(deps, command.game_id)
     current = _round_waiting_for_prompt(game)
@@ -54,9 +57,11 @@ async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
     if team.assigned_personality is None:
         raise GameRuleError(f"{team.name} has no personality yet")
     personality = get_personality(team.assigned_personality)
+    await check_player_text(deps, game, prompt, "That prompt")
 
     acting = tuple(team.player_ids)
-    script = await _generate(deps, prompt, personality, num_roles=len(acting))
+    tone = game.settings.content_tone
+    script = await _generate(deps, prompt, personality, num_roles=len(acting), tone=tone)
     if script is None:
         failed = ScriptGenerationFailed(
             game_id=game.id, round_number=current.round_number, team_id=team.id
@@ -119,14 +124,30 @@ def _normalized_prompt(prompt: str) -> str:
 
 
 async def _generate(
-    deps: GameDeps, prompt: str, personality: AIPersonality, *, num_roles: int
+    deps: GameDeps,
+    prompt: str,
+    personality: AIPersonality,
+    *,
+    num_roles: int,
+    tone: ContentTone,
 ) -> Script | None:
-    """Return a script with exactly ``num_roles`` roles, or None if every attempt failed."""
+    """Return a script with exactly ``num_roles`` roles that moderation allows.
+
+    Returns None if every attempt failed.
+    """
     for _ in range(SCRIPT_ATTEMPTS):
         try:
             script = await deps.llm.generate_script(prompt, personality, num_roles)
         except LLMError:
             continue
-        if len(script.roles) == num_roles:
+        if len(script.roles) != num_roles:
+            continue
+        if (await deps.moderation.check(_shown_text(script), tone)).allowed:
             return script
     return None
+
+
+def _shown_text(script: Script) -> str:
+    """Everything in the script that players will see."""
+    roles = (text for role in script.roles for text in (role.name, role.description, *role.lines))
+    return "\n".join([script.content, *roles])

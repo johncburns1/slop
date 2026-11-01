@@ -12,3 +12,7 @@ class GameRuleError(Exception):
 
 class GameNotFoundError(GameRuleError):
     """No game exists with the given id or room code."""
+
+
+class ContentBlockedError(GameRuleError):
+    """Text a player sent was blocked by content moderation."""

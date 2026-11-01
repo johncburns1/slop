@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, commit, find_game
+from slop.application.moderation import check_player_text
 from slop.domain.errors import GameRuleError
 from slop.domain.events import PlayerJoined
 from slop.domain.game import Game, GameStatus
@@ -36,6 +37,7 @@ async def join_game(deps: GameDeps, command: JoinGame) -> Joined:
         GameNotFoundError: If no game has this room code
         GameRuleError: If the game has started or is full, or the name is
             blank, too long, or already taken in this game (whatever the case)
+        ContentBlockedError: If moderation blocks the name
     """
     game = await find_game(deps, command.room_code.strip().upper())
     name = command.player_name.strip()
@@ -49,6 +51,7 @@ async def join_game(deps: GameDeps, command: JoinGame) -> Joined:
         raise GameRuleError(f"Name must be at most {MAX_NAME_LENGTH} characters")
     if any(player.name.casefold() == name.casefold() for player in game.players):
         raise GameRuleError(f"The name {name} is already taken in this game")
+    await check_player_text(deps, game, name, "That name")
 
     player_id = deps.ids.new_id()
     event = PlayerJoined(

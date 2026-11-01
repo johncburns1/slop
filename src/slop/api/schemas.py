@@ -197,7 +197,12 @@ class PlayerViewReply(Reply):
 
 
 ErrorCode = Literal[
-    "invalid_payload", "not_in_game", "game_not_found", "rule_broken", "rate_limited"
+    "invalid_payload",
+    "not_in_game",
+    "game_not_found",
+    "rule_broken",
+    "rate_limited",
+    "content_blocked",
 ]
 
 

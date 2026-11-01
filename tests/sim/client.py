@@ -19,6 +19,7 @@ from typing import Protocol
 from slop.adapters.clock import FixedClock
 from slop.adapters.ids import RandomIds, SequentialIds
 from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage, SQLiteStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.api.schemas import PlayerViewReply
@@ -151,6 +152,7 @@ class InProcessServer:
                 clock=FixedClock(NOW),
                 ids=SequentialIds(),
                 llm=StandInLLMAdapter(),
+                moderation=StandInModerationAdapter(),
             )
         )
 
@@ -168,6 +170,7 @@ class InProcessServer:
                 clock=FixedClock(NOW),
                 ids=RandomIds(),
                 llm=StandInLLMAdapter(),
+                moderation=StandInModerationAdapter(),
             )
         )
 

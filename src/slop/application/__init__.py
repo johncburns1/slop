@@ -2,13 +2,13 @@
 
 A use case is an async function ``use_case(deps, command) -> Game`` in its own
 module (see ``create_game`` for the model), where ``deps`` is an
-``engine.GameDeps`` holding the ports (storage, realtime, LLM), a clock, and an id
-generator, and
-``command`` is a frozen dataclass. It:
+``engine.GameDeps`` holding the ports (storage, realtime, LLM, moderation), a
+clock, and an id generator, and ``command`` is a frozen dataclass. It:
 
 1. Loads the game with ``engine.load_game`` or ``engine.find_game``.
 2. Checks the command against the domain rules, raising
-   ``slop.domain.errors.GameRuleError`` before emitting anything.
+   ``slop.domain.errors.GameRuleError`` before emitting anything. Text a
+   player sends goes through ``moderation.check_player_text`` here too.
 3. Builds the domain event(s). Leave ``event_id`` and ``timestamp`` unset.
 4. Calls ``engine.commit(deps, game, events)``, which stamps the events,
    applies them with ``slop.domain.projection.apply_event``, appends them
