@@ -76,11 +76,21 @@ class StoragePort(Protocol):
         """
         ...
 
+    async def list_games(self) -> list[Game]:
+        """Retrieve the latest snapshot of every stored game, in no particular order.
+
+        Used to find games that have expired.
+
+        Returns:
+            One Game per stored snapshot
+        """
+        ...
+
     async def delete_game(self, game_id: str) -> None:
         """Delete a game and all its events.
 
-        Called when a game is completed. Removes both event log
-        and snapshot to clean up storage.
+        Called when a game expires. Removes both event log
+        and snapshot, so its room code no longer resolves.
 
         Args:
             game_id: The game's unique identifier

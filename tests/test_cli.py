@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,18 +28,21 @@ from slop.cli import (
     ServeSettings,
     parse_args,
 )
+from slop.domain.expiry import ExpiryPolicy
 
 
 def test_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR", "SLOP_LLM", "SLOP_RATE_LIMIT"):
         monkeypatch.delenv(name, raising=False)
 
-    monkeypatch.delenv("SLOP_RATE_BURST", raising=False)
+    for name in ("SLOP_RATE_BURST", "SLOP_EXPIRE_IDLE_MINUTES", "SLOP_EXPIRE_FINISHED_MINUTES"):
+        monkeypatch.delenv(name, raising=False)
 
     assert parse_args(["serve"]) == ServeSettings(
         host=DEFAULT_HOST, port=DEFAULT_PORT, data_dir=DEFAULT_DATA_DIR
     )
     assert parse_args(["serve"]).rate_limit == RateLimit()
+    assert parse_args(["serve"]).expiry == ExpiryPolicy()
 
 
 def test_serve_reads_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,6 +127,37 @@ def test_serve_rejects_a_bad_rate_limit_env_var(monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(SystemExit):
         parse_args(["serve"])
+
+
+def test_serve_reads_room_expiry_from_flags_then_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SLOP_EXPIRE_IDLE_MINUTES", "60")
+    monkeypatch.setenv("SLOP_EXPIRE_FINISHED_MINUTES", "5")
+
+    assert parse_args(["serve"]).expiry == ExpiryPolicy(
+        idle=timedelta(minutes=60), after_finish=timedelta(minutes=5)
+    )
+    flags = ["serve", "--expire-idle-minutes", "0.5", "--expire-finished-minutes", "90"]
+    assert parse_args(flags).expiry == ExpiryPolicy(
+        idle=timedelta(seconds=30), after_finish=timedelta(minutes=90)
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["serve", "--expire-idle-minutes", "0"],
+        ["serve", "--expire-finished-minutes", "-1"],
+        ["serve", "--expire-idle-minutes", "inf"],
+    ],
+)
+def test_serve_rejects_bad_room_expiry(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLOP_EXPIRE_IDLE_MINUTES", raising=False)
+    monkeypatch.delenv("SLOP_EXPIRE_FINISHED_MINUTES", raising=False)
+
+    with pytest.raises(SystemExit):
+        parse_args(argv)
 
 
 def free_ports(count: int) -> list[int]:

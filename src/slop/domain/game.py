@@ -87,6 +87,7 @@ class Game:
     tiebreaker: Tiebreaker | None = None
     awards: list[Award] = field(default_factory=list)  # given once the game has finished
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_event_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
         """Validate game fields after initialization."""

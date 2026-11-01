@@ -46,6 +46,10 @@ class InMemoryStorage:
                 return deepcopy(game)
         return None
 
+    async def list_games(self) -> list[Game]:
+        """Return copies of every stored snapshot."""
+        return [deepcopy(game) for game in self._snapshots.values()]
+
     async def delete_game(self, game_id: str) -> None:
         """Remove the game's events and snapshot. Unknown games are ignored."""
         self._events.pop(game_id, None)
