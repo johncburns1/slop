@@ -4,7 +4,7 @@
 
 A party game for groups in the same room. Your team writes a six-word prompt, an AI turns it into a ridiculous script, and you perform it while everyone else races to guess what you typed. Everyone plays from their phone.
 
-**Status:** early development. The domain model and port interfaces are in place. The server and frontend aren't built yet.
+**Status:** the game server is playable end to end over Socket.IO, with a local AI stand-in in place of a real LLM. The frontend and a real LLM provider aren't built yet.
 
 ## Docs
 
@@ -17,13 +17,16 @@ A party game for groups in the same room. Your team writes a six-word prompt, an
 Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv run scripts/validate.py   # set up and run every check below, as CI does
-uv sync --all-extras   # install
-uv run pytest          # test
-uv run mypy src        # type check
-uv run ruff check      # lint
-uv run ruff format     # format
-uv run slop serve      # run the server (GET /health); --port/--data-dir or SLOP_PORT/SLOP_DATA_DIR
+uv run scripts/validate.py   # set up and run every check, as CI does
+uv run slop serve            # run the server; --port/--data-dir or SLOP_PORT/SLOP_DATA_DIR
+uv run pytest                # test
+uv run ruff check --fix && uv run ruff format
 ```
 
-`scripts/validate.py` prints a summary, writes `.validation/summary.json` and a Markdown report `.validation/report.md`, and exits non-zero if any check fails. The report has a pass/fail table with durations, the output tail of any failing check, and an Evidence section: tests add evidence (event logs, player views) by writing files to `$SLOP_EVIDENCE_DIR` (`.validation/evidence/`), e.g. with `tests.evidence.write_evidence`. CI shows the report on the run's summary page and uploads `.validation/` as the `validation-summary` artifact.
+The client message contract is in `src/slop/api/messages.py`.
+
+## Validation
+
+Everything runs locally with no network or cost. Stand-ins replace the LLM, storage, realtime, and moderation, and simulated players play whole games in-process or against a real server. Named scenarios in `tests/scenarios/` cover a full game, tiebreakers, disconnects, and a server crash.
+
+`scripts/validate.py` writes a report to `.validation/report.md` with a pass/fail table and each scenario's evidence. Tests add evidence with `tests.evidence.write_evidence`. CI shows the report on the run's summary page.
