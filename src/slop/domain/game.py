@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 
+from slop.domain.award import Award
 from slop.domain.errors import GameRuleError
 from slop.domain.player import Player
 from slop.domain.round import Round
@@ -84,6 +85,7 @@ class Game:
     rounds: list[Round] = field(default_factory=list)
     current_round: int = 0
     tiebreaker: Tiebreaker | None = None
+    awards: list[Award] = field(default_factory=list)  # given once the game has finished
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:

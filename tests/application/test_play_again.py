@@ -26,6 +26,7 @@ async def test_play_again_keeps_players_and_teams_and_resets_scores_and_personal
 ):
     game = await finished(deps, realtime, scored_after_last_round(scores=(4, 2)))
     assert game.status == GameStatus.FINISHED
+    assert game.awards
     before = await storage.get_events(game.id)
 
     new_game = await play_again(deps, PlayAgain(game.id, "player-1"))
@@ -38,6 +39,7 @@ async def test_play_again_keeps_players_and_teams_and_resets_scores_and_personal
     ]
     assert [(t.score, t.assigned_personality) for t in new_game.teams] == [(0, None), (0, None)]
     assert (new_game.rounds, new_game.current_round, new_game.tiebreaker) == ([], 0, None)
+    assert new_game.awards == []
     (restarted,) = (await storage.get_events(game.id))[len(before) :]
     assert isinstance(restarted, GameRestarted)
     assert realtime.broadcasts_to(game.room_code)[-1] == restarted

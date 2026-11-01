@@ -1,5 +1,7 @@
 """Tests for the finish or continue use case: what happens once a round is over."""
 
+from dataclasses import replace
+
 import pytest
 
 from slop.adapters.storage import InMemoryStorage
@@ -8,6 +10,7 @@ from slop.application.engine import GameDeps, commit, load_game
 from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
+    AwardsGiven,
     Game,
     GameCompleted,
     GameStatus,
@@ -18,6 +21,7 @@ from slop.domain import (
 )
 from slop.domain.errors import GameNotFoundError, GameRuleError
 from slop.domain.game_end import MAX_TIEBREAKER_CYCLES
+from tests.application.test_awards import FakeLLM, won_by_red
 from tests.builders import in_guessing_phase, scored_after_last_round, tied_after_last_round
 from tests.evidence import write_evidence
 
@@ -85,14 +89,53 @@ async def test_a_clear_winner_after_the_last_round_ends_the_game(
 
     assert game.status == GameStatus.FINISHED
     assert game.tiebreaker is None
-    (completed,) = await storage.get_events(game.id)
+    completed, awarded = await storage.get_events(game.id)
     assert isinstance(completed, GameCompleted)
     assert (completed.final_scores, completed.winner_team_id) == (
         {"team-1": 4, "team-2": 2},
         "team-1",
     )
-    assert realtime.broadcasts_to(game.room_code) == [completed]
+    assert isinstance(awarded, AwardsGiven)
+    assert realtime.broadcasts_to(game.room_code) == [completed, awarded]
     assert await load_game(deps, game.id) == game
+
+
+async def test_the_room_gets_awards_about_the_game_right_after_it_ends(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    game = await start(deps, realtime, won_by_red())
+
+    game = await finish_or_continue(deps, FinishOrContinue(game.id))
+
+    assert broadcast(realtime, game) == [GameCompleted, AwardsGiven]
+    awarded = realtime.broadcasts_to(game.room_code)[-1]
+    assert isinstance(awarded, AwardsGiven)
+    assert game.awards == awarded.awards
+    assert len(awarded.awards) == 3
+    names = {t.name for t in game.teams} | {p.name for p in game.players}
+    assert all(award.recipient in names for award in awarded.awards)
+    reasons = " ".join(award.reason for award in awarded.awards)
+    assert f'"{game.rounds[0].prompt}"' in reasons  # a real prompt
+    assert '"Aliens eat a city"' in reasons  # a real wrong guess
+    write_evidence(
+        "finish-or-continue/awards-events.jsonl",
+        "".join(e.model_dump_json() + "\n" for e in await storage.get_events(game.id)),
+    )
+
+
+async def test_when_the_llm_fails_the_game_still_ends_without_awards(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    deps = replace(deps, llm=FakeLLM(error=True))
+    game = await start(deps, realtime, won_by_red())
+
+    game = await finish_or_continue(deps, FinishOrContinue(game.id))
+
+    assert (game.status, game.awards) == (GameStatus.FINISHED, [])
+    assert [type(e) for e in await storage.get_events(game.id)] == [GameCompleted]
+    assert broadcast(realtime, game) == [GameCompleted]
+    for player in game.players:  # nothing else, and no error, reaches anyone
+        assert [type(e) for e in realtime.received_by(player.socket_id)] == [GameCompleted]
 
 
 async def test_a_tie_is_broken_by_a_tiebreaker_cycle_and_the_tied_team_can_play_it(
@@ -124,7 +167,7 @@ async def test_a_tie_is_broken_by_a_tiebreaker_cycle_and_the_tied_team_can_play_
 
     assert acting == ["team-1", "team-2"]
     assert game.status == GameStatus.FINISHED
-    completed = (await storage.get_events(game.id))[-1]
+    completed = (await storage.get_events(game.id))[-2]
     assert isinstance(completed, GameCompleted)
     assert completed.winner_team_id == "team-2"
     assert completed.final_scores == {"team-1": 6, "team-2": 7}
@@ -147,7 +190,7 @@ async def test_only_the_teams_tied_for_first_act_in_the_tiebreaker(
     game, acting = await play_out(deps, game, [{}, {"team-1": 1, "team-3": 1}])
 
     assert acting == ["team-2", "team-3"]
-    completed = (await storage.get_events(game.id))[-1]
+    completed = (await storage.get_events(game.id))[-2]
     assert isinstance(completed, GameCompleted)
     assert completed.winner_team_id == "team-3"
 
@@ -165,11 +208,11 @@ async def test_a_tie_that_survives_every_tiebreaker_cycle_is_a_draw(
     cycles = [e.cycle for e in events if isinstance(e, TiebreakerStarted)]
     assert cycles == list(range(1, MAX_TIEBREAKER_CYCLES + 1))
     assert game.status == GameStatus.FINISHED
-    completed = events[-1]
+    completed = events[-2]
     assert isinstance(completed, GameCompleted)
     assert completed.winner_team_id is None
     assert completed.final_scores == {"team-1": 6, "team-2": 6}
-    assert broadcast(realtime, game)[-1] is GameCompleted
+    assert broadcast(realtime, game)[-2:] == [GameCompleted, AwardsGiven]
     write_evidence(
         "finish-or-continue/draw-events.jsonl",
         "".join(e.model_dump_json() + "\n" for e in events),

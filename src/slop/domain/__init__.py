@@ -4,7 +4,9 @@ This module contains pure business logic with no external dependencies.
 """
 
 from slop.domain.ai_personality import AIPersonality
+from slop.domain.award import Award
 from slop.domain.events import (
+    AwardsGiven,
     GameCompleted,
     GameCreated,
     GameEvent,
@@ -41,6 +43,8 @@ from slop.domain.team import Team
 
 __all__ = [
     "AIPersonality",
+    "Award",
+    "AwardsGiven",
     "ContentTone",
     "Game",
     "GameCompleted",

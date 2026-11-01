@@ -17,6 +17,7 @@ from slop.application.submit_prompt import (
 )
 from slop.domain import (
     AIPersonality,
+    Award,
     Game,
     PromptSubmitted,
     RoleAssigned,
@@ -26,7 +27,7 @@ from slop.domain import (
     ScriptReady,
 )
 from slop.domain.errors import GameNotFoundError, GameRuleError
-from slop.ports.llm import LLMError
+from slop.ports.llm import GameSummary, LLMError
 from tests.builders import in_guessing_phase, waiting_for_prompt
 from tests.evidence import write_evidence
 
@@ -52,6 +53,9 @@ class FakeLLM:
         return await StandInLLMAdapter().generate_script(
             prompt, personality, num_roles + self.extra_roles
         )
+
+    async def generate_awards(self, summary: GameSummary) -> list[Award]:
+        return await StandInLLMAdapter().generate_awards(summary)
 
 
 async def start(deps: GameDeps, realtime: RecordingRealtime, game: Game) -> Game:

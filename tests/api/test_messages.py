@@ -183,7 +183,7 @@ async def test_host_plays_again_once_the_game_is_over() -> None:
         await t.send("dave", "submit_prompt", {"prompt": "penguins unionize"})
         await t.send("carol", "pick_winning_guess", {"guess_index": None})
         await t.send("dave", "guess_personality", {"personality_id": "absurdist"})
-        assert (await t.types("alice"))[-1] == "GameCompleted"
+        assert (await t.types("alice"))[-2:] == ["GameCompleted", "AwardsGiven"]
 
         refused = await t.send("bob", "play_again")
         assert await t.send("alice", "play_again") is None
@@ -268,6 +268,7 @@ async def test_players_reconnect_mid_round_and_see_only_what_they_may() -> None:
         assert guessing["current_round"]["script"] is None
         assert "haunted" not in str(guessing)
         assert guessing["my_pick"]["personality_id"] == "melodrama"
+        assert acting["awards"] == guessing["awards"] == []  # awards come once the game ends
         assert "noir" not in str(guessing)  # Blue's own personality
         assert (await t.types("alice"))[-2:] == ["PlayerReconnected"] * 2
         assert "PlayerJoined" not in await t.types("bob")

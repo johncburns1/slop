@@ -10,6 +10,7 @@ plus what went privately to their team. So:
 - A team's own personality is shown only once it has been revealed, after
   the team's first personality guess. The script never names it.
 - A team's pick for the next team is shown only to that team.
+- Everyone sees the end-of-game awards, once given.
 """
 
 from dataclasses import dataclass
@@ -103,6 +104,13 @@ class RoundView:
 
 
 @dataclass(frozen=True)
+class AwardView:
+    title: str
+    recipient: str  # a team or player name
+    reason: str
+
+
+@dataclass(frozen=True)
 class PlayerView:
     """Everything ``player_id`` may see of the game right now."""
 
@@ -116,6 +124,7 @@ class PlayerView:
     teams: tuple[TeamView, ...]
     current_round: RoundView | None  # None outside a round
     my_pick: PersonalityPick | None
+    awards: tuple[AwardView, ...]  # empty until the game has ended and awards are given
 
 
 def player_view(game: Game, player_id: str) -> PlayerView:
@@ -157,6 +166,7 @@ def player_view(game: Game, player_id: str) -> PlayerView:
             if picked_by_viewer is not None and picked_by_viewer.assigned_personality is not None
             else None
         ),
+        awards=tuple(AwardView(a.title, a.recipient, a.reason) for a in game.awards),
     )
 
 

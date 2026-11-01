@@ -4,7 +4,7 @@
 other ``GameServer``, such as a real one over Socket.IO. ``outcome_of`` reduces
 the result to what a scenario expects, with teams named rather than by id.
 ``report`` writes the evidence: the setup, the result, a round-by-round score
-table, and what each player received, collapsed.
+table, the end-of-game awards, and what each player received, collapsed.
 """
 
 import re
@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from slop.domain.events import (
+    AwardsGiven,
     GameCompleted,
     GameEvent,
     GuessAccepted,
@@ -113,6 +114,7 @@ def report(scenario: Scenario, played: Played) -> str:
                 f"**Transport:** {played.transport}",
                 f"**Result:** {_result(played)}",
                 _score_table(played),
+                _awards(played),
                 "<details>\n<summary>What each player received</summary>",
                 _player_logs(played.table),
                 "</details>",
@@ -130,6 +132,19 @@ def _result(played: Played) -> str:
     winner = played.completed.winner_team_id
     headline = f"{names[winner]} wins" if winner else "Draw"
     return f"{headline}, {'–'.join(map(str, ranked))} ({by_team})."
+
+
+def awards_of(played: Played) -> AwardsGiven | None:
+    """The awards the room heard, if any."""
+    return next((e for e in _room_events(played.table) if isinstance(e, AwardsGiven)), None)
+
+
+def _awards(played: Played) -> str:
+    awarded = awards_of(played)
+    if awarded is None:
+        return "**Awards:** none."
+    lines = (f"- **{a.title}:** {a.recipient}. {a.reason}" for a in awarded.awards)
+    return "\n".join(["**Awards:**", "", *lines])
 
 
 def _score_table(played: Played) -> str:
