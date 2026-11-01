@@ -3,6 +3,7 @@
 import pytest
 
 from slop.domain import (
+    AwardsGiven,
     ContentTone,
     GameCompleted,
     GameEvent,
@@ -30,6 +31,7 @@ from tests.event_logs import (
     GAME_ID,
     T0,
     at,
+    awards,
     created,
     lobby_events,
     round_one_unguessed_events,
@@ -315,6 +317,37 @@ def test_game_restarted_keeps_players_and_teams_and_clears_the_last_game():
         (0, None, None),
     ]
     assert (game.rounds, game.current_round, game.tiebreaker) == ([], 0, None)
+
+
+def test_awards_given_are_stored_on_the_finished_game():
+    events = [
+        *lobby_events(),
+        GameCompleted(
+            game_id=GAME_ID, final_scores={"team-1": 4, "team-2": 3}, winner_team_id="team-1"
+        ),
+        AwardsGiven(game_id=GAME_ID, awards=awards()),
+    ]
+
+    game = replay(events)
+
+    assert game.status == GameStatus.FINISHED
+    assert game.awards == awards()
+
+
+def test_awards_can_only_be_given_once_the_game_has_finished():
+    with pytest.raises(ProjectionError, match="not finished"):
+        replay([*lobby_events(), AwardsGiven(game_id=GAME_ID, awards=awards())])
+
+
+def test_playing_again_clears_the_awards():
+    events = [
+        *lobby_events(),
+        GameCompleted(game_id=GAME_ID, final_scores={}, winner_team_id=None),
+        AwardsGiven(game_id=GAME_ID, awards=awards()),
+        GameRestarted(game_id=GAME_ID),
+    ]
+
+    assert replay(events).awards == []
 
 
 def test_only_a_finished_game_can_restart():

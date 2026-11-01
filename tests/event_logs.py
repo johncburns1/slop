@@ -7,6 +7,8 @@ add an event type, add it here too, or the replay coverage test fails.
 from datetime import UTC, datetime, timedelta
 
 from slop.domain import (
+    Award,
+    AwardsGiven,
     GameCompleted,
     GameCreated,
     GameEvent,
@@ -163,7 +165,8 @@ def round_one_unguessed_events() -> list[GameEvent]:
 def full_game_events() -> list[GameEvent]:
     """A short game that uses every event type.
 
-    Team 1 wins, then the group plays again and is back to picking personalities.
+    Team 1 wins and gets its awards, then the group plays again and is back to
+    picking personalities.
     """
     return [
         *lobby_events(),
@@ -192,5 +195,15 @@ def full_game_events() -> list[GameEvent]:
         GameCompleted(
             game_id=GAME_ID, final_scores={"team-1": 2, "team-2": 1}, winner_team_id="team-1"
         ),
+        AwardsGiven(game_id=GAME_ID, awards=awards()),
         GameRestarted(game_id=GAME_ID),
+    ]
+
+
+def awards() -> list[Award]:
+    """Three awards for the game in ``full_game_events``."""
+    return [
+        Award(title="Moon Thieves", recipient="Red", reason='For "Cat steals the moon".'),
+        Award(title="Cat Burglars", recipient="Blue", reason='For guessing "Cat crime".'),
+        Award(title="Best Supporting Moon", recipient="Player 2", reason="For playing the Moon."),
     ]

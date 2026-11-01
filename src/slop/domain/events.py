@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from slop.domain.award import Award
+
 
 class GameEvent(BaseModel):
     """Base class for all domain events.
@@ -257,6 +259,16 @@ class GameCompleted(GameEvent):
     event_type: str = "GameCompleted"
     final_scores: dict[str, int]  # team_id -> final score
     winner_team_id: str | None
+
+
+class AwardsGiven(GameEvent):
+    """Emitted to the whole room right after ``GameCompleted`` with the LLM's awards.
+
+    Optional: if no usable awards could be written, the game ends without it.
+    """
+
+    event_type: str = "AwardsGiven"
+    awards: list[Award]
 
 
 class GameRestarted(GameEvent):

@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from copy import deepcopy
 
 from slop.domain.events import (
+    AwardsGiven,
     GameCompleted,
     GameCreated,
     GameEvent,
@@ -213,6 +214,10 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
         case GameCompleted():
             _set_scores(game, event.final_scores)
             game.finish()
+        case AwardsGiven():
+            if game.status != GameStatus.FINISHED:
+                raise ProjectionError(f"Game {game.id} has not finished")
+            game.awards = list(event.awards)
         case GameRestarted():
             if game.status != GameStatus.FINISHED:
                 raise ProjectionError(f"Game {game.id} has not finished")
@@ -223,6 +228,7 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             game.rounds = []
             game.current_round = 0
             game.tiebreaker = None
+            game.awards = []
             game.set_personality_selection_phase()
         case _:
             raise ProjectionError(f"No projection for event type {event.event_type}")

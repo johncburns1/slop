@@ -13,6 +13,7 @@ from slop.application.engine import GameDeps, load_game
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
     AIPersonality,
+    Award,
     Game,
     GameStatus,
     PersonalityAssigned,
@@ -22,6 +23,7 @@ from slop.domain import (
 )
 from slop.domain.errors import GameNotFoundError, GameRuleError
 from slop.domain.personalities import PERSONALITIES, get_personality
+from slop.ports.llm import GameSummary
 from tests.builders import lobby_with_two_teams, selecting_personalities
 from tests.evidence import write_evidence
 
@@ -44,6 +46,9 @@ class RecordingLLM:
     ) -> Script:
         self.personalities.append(personality)
         return await StandInLLMAdapter().generate_script(prompt, personality, num_roles)
+
+    async def generate_awards(self, summary: GameSummary) -> list[Award]:
+        return await StandInLLMAdapter().generate_awards(summary)
 
 
 async def start(deps: GameDeps, realtime: RecordingRealtime, game: Game) -> Game:

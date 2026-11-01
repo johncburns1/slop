@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 
 from slop.domain import (
+    Award,
+    AwardsGiven,
     GameCompleted,
     GameCreated,
     GuessAccepted,
@@ -276,6 +278,21 @@ def test_game_completed_event():
     assert event.final_scores == {"team-1": 12, "team-2": 8}
     assert event.winner_team_id == "team-1"
     assert event.event_type == "GameCompleted"
+
+
+def test_awards_given_event_round_trips_through_json():
+    event = AwardsGiven(
+        game_id="game-1",
+        awards=[Award(title="Moon Thieves", recipient="Red", reason="For stealing the moon.")],
+    )
+
+    data = json.loads(event.model_dump_json())
+
+    assert data["event_type"] == "AwardsGiven"
+    assert data["awards"] == [
+        {"title": "Moon Thieves", "recipient": "Red", "reason": "For stealing the moon."}
+    ]
+    assert AwardsGiven.model_validate(data) == event
 
 
 def test_event_immutability():

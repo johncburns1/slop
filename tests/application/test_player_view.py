@@ -3,12 +3,13 @@
 import pytest
 
 from slop.application.player_view import PlayerView, player_view
-from slop.domain import GameStatus
+from slop.domain import Award, GameStatus
 from slop.domain.errors import GameRuleError
 from tests.builders import (
     DEFAULT_PROMPT,
     in_guessing_phase,
     lobby_with_two_teams,
+    scored_after_last_round,
     selecting_personalities,
     tied_after_last_round,
     waiting_for_prompt,
@@ -138,6 +139,20 @@ def test_no_round_is_shown_between_the_last_round_and_what_comes_next():
 
     assert view.current_round is None
     assert [t.score for t in view.teams] == [2, 2]
+
+
+def test_everyone_sees_the_awards_once_the_game_has_finished():
+    game = scored_after_last_round(scores=(4, 2))
+    game.finish()
+    assert player_view(game, "player-1").awards == ()
+    game.awards = [Award(title="Champions", recipient="Red Team", reason="For winning.")]
+
+    for player_id in ("player-1", "player-3"):
+        view = player_view(game, player_id)
+        assert view.status == GameStatus.FINISHED
+        assert [(a.title, a.recipient, a.reason) for a in view.awards] == [
+            ("Champions", "Red Team", "For winning.")
+        ]
 
 
 def test_a_player_not_in_the_game_has_no_view():

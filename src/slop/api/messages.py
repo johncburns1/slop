@@ -32,14 +32,19 @@ player in the game.
 server restart: it ties the connection to the existing player (no new
 ``PlayerJoined``; the room gets ``PlayerReconnected``) and acks with
 ``{game_id, room_code, status, settings, player_id, team_id, players, teams,
-current_round, my_pick}``, the game as that player may see it (see
+current_round, my_pick, awards}``, the game as that player may see it (see
 ``slop.application.player_view``). ``current_round`` holds the round's
 ``phase`` and ``guesses``, plus its ``prompt`` and ``script`` for the acting
-team only. A team's ``personality_id`` stays null until it is revealed, and
-``my_pick`` is the personality the player's team picked for another team.
+team only. A team's ``personality_id`` stays null until it is revealed,
+``my_pick`` is the personality the player's team picked for another team, and
+``awards`` is the end-of-game awards (empty until given).
 
 The server sends game events to clients under their ``event_type`` (such as
-``PlayerJoined``), with the event as the payload. A rejected message gets
+``PlayerJoined``), with the event as the payload. When the game ends, the
+room gets ``GameCompleted`` and then, if the AI wrote usable awards,
+``AwardsGiven {awards: [{title, recipient, reason}]}``, where ``recipient``
+is a team or player name. If no awards could be written, ``AwardsGiven`` is
+simply never sent; ``play_again`` clears them. A rejected message gets
 ``error`` with ``{code, message, request}``, sent only to its sender, and the
 same object as its ack. ``code`` is ``invalid_payload``, ``not_in_game`` (the
 connection hasn't joined a game), ``game_not_found``, or ``rule_broken``;

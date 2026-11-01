@@ -1,7 +1,9 @@
 """Deterministic stand-in for a real LLM provider.
 
 Builds believable scripts from fixed word banks, seeded by the inputs, so the
-same prompt, personality, and role count always give the same script. It makes
+same prompt, personality, and role count always give the same script. Awards
+are built the same way from the game summary, quoting its real prompts and
+guesses, so the same game always gets the same awards. It makes
 no network calls and costs nothing, which makes it suitable for local play,
 tests, and validation environments.
 """
@@ -13,7 +15,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from slop.domain.ai_personality import AIPersonality
+from slop.domain.award import Award
+from slop.domain.game import ContentTone
 from slop.domain.script import Role, Script
+from slop.ports.llm import GameSummary, LLMError
 
 if TYPE_CHECKING:
     from slop.ports.llm import LLMPort
@@ -97,6 +102,38 @@ GENERIC_LINES: tuple[str, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class AwardTitles:
+    """The award titles for one content setting."""
+
+    prompt: str
+    wrong_guess: str
+    right_guess: str
+    performer: str
+    winner: str
+    draw: str
+
+
+AWARD_TITLES: dict[ContentTone, AwardTitles] = {
+    ContentTone.FAMILY: AwardTitles(
+        prompt="Most Unhinged Prompt",
+        wrong_guess="Wildest Guess",
+        right_guess="Certified Mind Readers",
+        performer="Most Committed Performer",
+        winner="Champions of Slop",
+        draw="Shared Custody of the Trophy",
+    ),
+    ContentTone.ADULT: AwardTitles(
+        prompt="Most Deranged Prompt",
+        wrong_guess="Most Shameless Guess",
+        right_guess="Suspiciously Good Guessers",
+        performer="Zero Dignity Award",
+        winner="Undisputed Lords of Slop",
+        draw="Mutually Assured Mediocrity",
+    ),
+}
+
+
 def _style_for(personality: AIPersonality) -> Style:
     """Pick a known style, or build one from the personality's own words."""
     if personality.id in STYLES:
@@ -111,8 +148,48 @@ def _style_for(personality: AIPersonality) -> Style:
 
 def _seed(prompt: str, personality: AIPersonality, num_roles: int) -> int:
     """Derive a stable seed; built-in hash() is randomized per process."""
-    key = "\x1f".join((prompt, personality.id, str(num_roles)))
+    return _digest("\x1f".join((prompt, personality.id, str(num_roles))))
+
+
+def _digest(key: str) -> int:
     return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big")
+
+
+def _prompt_award(rng: random.Random, summary: GameSummary, titles: AwardTitles) -> Award:
+    prompted = [r for r in summary.rounds if r.prompt]
+    if not prompted:
+        team = rng.choice(summary.teams)
+        return Award(titles.prompt, team.name, "For keeping every prompt a total mystery.")
+    chosen = rng.choice(prompted)
+    return Award(titles.prompt, chosen.acting_team, f'For making the AI perform "{chosen.prompt}".')
+
+
+def _guess_award(rng: random.Random, summary: GameSummary, titles: AwardTitles) -> Award:
+    guesses = [g for r in summary.rounds for g in r.guesses]
+    wrong = [g for g in guesses if not g.correct]
+    if wrong:
+        guess = rng.choice(wrong)
+        return Award(
+            titles.wrong_guess, guess.team, f'For shouting "{guess.guess}" with a straight face.'
+        )
+    if guesses:
+        guess = rng.choice(guesses)
+        return Award(
+            titles.right_guess, guess.team, f'For seeing straight through it with "{guess.guess}".'
+        )
+    team = rng.choice(summary.teams)
+    performer = rng.choice(team.players) if team.players else team.name
+    return Award(titles.performer, performer, "For acting so hard that nobody dared to guess.")
+
+
+def _winner_award(summary: GameSummary, titles: AwardTitles) -> Award:
+    top = max(team.score for team in summary.teams)
+    if summary.winner is not None:
+        return Award(
+            titles.winner, summary.winner, f"For having won the whole thing with {top} points."
+        )
+    tied = next(team for team in summary.teams if team.score == top)
+    return Award(titles.draw, tied.name, f"For tying at the top on {top} points. Share nicely.")
 
 
 def _cast(rng: random.Random, num_roles: int) -> list[Role]:
@@ -174,6 +251,18 @@ class StandInLLMAdapter:
             personality=personality.id,
             generated_at=GENERATED_AT,
         )
+
+    async def generate_awards(self, summary: GameSummary) -> list[Award]:
+        """Give a prompt award, a guess (or performance) award, and a winner's award."""
+        if not summary.teams:
+            raise LLMError("A game with no teams gets no awards")
+        rng = random.Random(_digest(repr(summary)))
+        titles = AWARD_TITLES[summary.content_tone]
+        return [
+            _prompt_award(rng, summary, titles),
+            _guess_award(rng, summary, titles),
+            _winner_award(summary, titles),
+        ]
 
 
 if TYPE_CHECKING:

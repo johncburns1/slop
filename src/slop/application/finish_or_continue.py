@@ -6,6 +6,7 @@ Call it after every ``RoundCompleted``. The rules for what comes next live in
 
 from dataclasses import dataclass
 
+from slop.application.awards import give_awards
 from slop.application.engine import GameDeps, commit, load_game
 from slop.domain.errors import GameRuleError
 from slop.domain.events import GameCompleted, GameEvent, RoundStarted, TiebreakerStarted
@@ -27,7 +28,8 @@ async def finish_or_continue(deps: GameDeps, command: FinishOrContinue) -> Game:
     them, a single leader wins (``GameCompleted``); teams tied for first
     start a tiebreaker cycle (``TiebreakerStarted``) whose first round starts
     straight away; and a tie that outlasts every cycle ends as a draw, with
-    no winner.
+    no winner. Once the game has ended, the room gets the LLM's awards
+    (``AwardsGiven``, see ``slop.application.awards``), if it wrote any usable.
 
     Raises:
         GameNotFoundError: If there is no such game
@@ -55,13 +57,13 @@ async def finish_or_continue(deps: GameDeps, command: FinishOrContinue) -> Game:
                 _round_started(game, team_ids[0]),
             ]
         case EndGame(winner_team_id=winner_team_id):
-            events.append(
-                GameCompleted(
-                    game_id=game.id,
-                    final_scores={team.id: team.score for team in game.teams},
-                    winner_team_id=winner_team_id,
-                )
+            completed = GameCompleted(
+                game_id=game.id,
+                final_scores={team.id: team.score for team in game.teams},
+                winner_team_id=winner_team_id,
             )
+            # The game is over before the LLM is asked for awards.
+            return await give_awards(deps, await commit(deps, game, [completed]))
     return await commit(deps, game, events)
 
 

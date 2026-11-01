@@ -18,6 +18,10 @@ def test_llm_port_has_generate_script_method():
     assert hasattr(LLMPort, "generate_script")
 
 
+def test_llm_port_has_generate_awards_method():
+    assert hasattr(LLMPort, "generate_awards")
+
+
 class MockLLMAdapter:
     """Mock LLM adapter for testing protocol compliance."""
 

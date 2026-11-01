@@ -172,6 +172,12 @@ class RoundView(ViewModel):
     script: ScriptView | None
 
 
+class AwardView(ViewModel):
+    title: str
+    recipient: str
+    reason: str
+
+
 class PlayerViewReply(Reply):
     """Ack of `rejoin_game`: the game as this player may see it."""
 
@@ -187,6 +193,7 @@ class PlayerViewReply(Reply):
     teams: list[TeamView]
     current_round: RoundView | None
     my_pick: PersonalityPick | None
+    awards: list[AwardView]
 
 
 ErrorCode = Literal["invalid_payload", "not_in_game", "game_not_found", "rule_broken"]

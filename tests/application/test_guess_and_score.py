@@ -19,6 +19,7 @@ from slop.application.guess_and_score import (
 )
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
+    AwardsGiven,
     Game,
     GameCompleted,
     GameStatus,
@@ -363,9 +364,14 @@ async def test_the_last_regular_round_hands_off_to_the_end_of_the_game(
     game = await guess_personality(deps, GuessPersonality(game.id, "player-4", "melodrama"))
 
     events = await storage.get_events(game.id)
-    assert [type(e) for e in events][-3:] == [ScoresUpdated, RoundCompleted, GameCompleted]
+    assert [type(e) for e in events][-4:] == [
+        ScoresUpdated,
+        RoundCompleted,
+        GameCompleted,
+        AwardsGiven,
+    ]
     assert realtime.who_received(RoundStarted) == frozenset()
-    completed, ended = events[-2:]
+    completed, ended = events[-3:-1]
     assert isinstance(completed, RoundCompleted)
     assert completed.final_scores == {"team-1": 2, "team-2": 3}
     assert isinstance(ended, GameCompleted)
@@ -403,11 +409,12 @@ async def test_a_tie_after_the_last_round_is_played_off_round_by_round(
     await pick_winning_guess(deps, PickWinningGuess(game.id, "player-3", None))
     game = await guess_personality(deps, GuessPersonality(game.id, "player-4", "noir"))
 
-    ended = (await storage.get_events(game.id))[-1]
+    # The game ends, then the awards follow.
+    ended = (await storage.get_events(game.id))[-2]
     assert isinstance(ended, GameCompleted)
     assert (ended.final_scores, ended.winner_team_id) == ({"team-1": 3, "team-2": 2}, "team-1")
     assert game.status == GameStatus.FINISHED
-    assert realtime.broadcasts_to(game.room_code)[-1] == ended
+    assert realtime.broadcasts_to(game.room_code)[-2] == ended
 
 
 @pytest.mark.parametrize(
