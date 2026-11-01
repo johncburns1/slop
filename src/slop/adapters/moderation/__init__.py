@@ -1,0 +1,8 @@
+"""Content moderation adapters.
+
+Implementations of the ModerationPort interface.
+"""
+
+from slop.adapters.moderation.stand_in import StandInModerationAdapter
+
+__all__ = ["StandInModerationAdapter"]

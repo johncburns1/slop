@@ -1,14 +1,17 @@
 """Tests for the join game use case."""
 
+from dataclasses import replace
+
 import pytest
 
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.create_game import CreateGame, create_game
 from slop.application.engine import GameDeps, load_game
 from slop.application.join_game import MAX_NAME_LENGTH, JoinGame, join_game
 from slop.domain import ContentTone, Game, GameStatus, PlayerJoined
-from slop.domain.errors import GameNotFoundError, GameRuleError
+from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 from tests.application.conftest import NOW
 from tests.builders import lobby_with_two_teams
 
@@ -108,3 +111,35 @@ async def test_a_full_game_is_rejected(deps: GameDeps):
 
     with pytest.raises(GameRuleError, match="full"):
         await join_game(deps, JoinGame(game.room_code, "D", "socket-D"))
+
+
+async def test_a_name_moderation_blocks_is_rejected_without_a_trace(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    deps = replace(deps, moderation=StandInModerationAdapter(blocked_always=["gloop"]))
+    game = await new_game(deps)
+
+    with pytest.raises(ContentBlockedError, match="That name isn't allowed"):
+        await join_game(deps, JoinGame(game.room_code, "Big Gloop", "socket-a"))
+
+    assert (await load_game(deps, game.id)).players == []
+    assert len(await storage.get_events(game.id)) == 1  # just GameCreated
+    assert realtime.rooms_of("socket-a") == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("tone", "allowed"), [(ContentTone.FAMILY, False), (ContentTone.ADULT, True)]
+)
+async def test_family_games_block_names_adult_games_allow(
+    deps: GameDeps, tone: ContentTone, allowed: bool
+):
+    deps = replace(deps, moderation=StandInModerationAdapter(blocked_for_family=["fizz"]))
+    game = await create_game(deps, CreateGame(content_tone=tone))
+
+    if allowed:
+        await join_game(deps, JoinGame(game.room_code, "Fizz", "socket-a"))
+    else:
+        with pytest.raises(ContentBlockedError):
+            await join_game(deps, JoinGame(game.room_code, "Fizz", "socket-a"))
+
+    assert len((await load_game(deps, game.id)).players) == int(allowed)

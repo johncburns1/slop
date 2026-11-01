@@ -11,6 +11,7 @@ import pytest
 from slop.adapters.clock import FixedClock
 from slop.adapters.ids import SequentialIds
 from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps
@@ -44,11 +45,19 @@ def llm() -> StandInLLMAdapter:
 
 
 @pytest.fixture
+def moderation() -> StandInModerationAdapter:
+    return StandInModerationAdapter()
+
+
+@pytest.fixture
 def deps(
     storage: InMemoryStorage,
     realtime: RecordingRealtime,
     clock: FixedClock,
     ids: SequentialIds,
     llm: StandInLLMAdapter,
+    moderation: StandInModerationAdapter,
 ) -> GameDeps:
-    return GameDeps(storage=storage, realtime=realtime, clock=clock, ids=ids, llm=llm)
+    return GameDeps(
+        storage=storage, realtime=realtime, clock=clock, ids=ids, llm=llm, moderation=moderation
+    )

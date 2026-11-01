@@ -1,10 +1,12 @@
 """Tests for guessing the prompt, judging the guesses, and scoring the round."""
 
 import json
+from dataclasses import replace
 from functools import reduce
 
 import pytest
 
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application import guess_and_score
@@ -20,6 +22,7 @@ from slop.application.guess_and_score import (
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
     AwardsGiven,
+    ContentTone,
     Game,
     GameCompleted,
     GameStatus,
@@ -32,7 +35,7 @@ from slop.domain import (
     RoundStarted,
     ScoresUpdated,
 )
-from slop.domain.errors import GameNotFoundError, GameRuleError
+from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 from slop.domain.projection import apply_event
 from tests.builders import (
     in_guessing_phase,
@@ -125,6 +128,36 @@ async def test_bad_guesses_are_rejected(
         await submit_guess(deps, SubmitGuess(game.id, player_id, guess))
 
     assert await storage.get_events(game.id) == []
+
+
+@pytest.mark.parametrize(
+    ("tone", "allowed"), [(ContentTone.FAMILY, False), (ContentTone.ADULT, True)]
+)
+async def test_a_guess_moderation_blocks_is_rejected_and_family_games_are_stricter(
+    deps: GameDeps,
+    storage: InMemoryStorage,
+    realtime: RecordingRealtime,
+    tone: ContentTone,
+    allowed: bool,
+):
+    deps = replace(
+        deps,
+        moderation=StandInModerationAdapter(blocked_always=["gloop"], blocked_for_family=["fizz"]),
+    )
+    game = in_guessing_phase(guesses=())
+    game.settings.content_tone = tone
+    game = await start(deps, realtime, game)
+
+    with pytest.raises(ContentBlockedError, match="That guess isn't allowed"):
+        await submit_guess(deps, SubmitGuess(game.id, "player-3", "Gloop at sea"))
+    if allowed:
+        await submit_guess(deps, SubmitGuess(game.id, "player-3", "Fizz at sea"))
+    else:
+        with pytest.raises(ContentBlockedError):
+            await submit_guess(deps, SubmitGuess(game.id, "player-3", "Fizz at sea"))
+
+    guesses = [e.guess for e in await storage.get_events(game.id) if isinstance(e, GuessSubmitted)]
+    assert guesses == (["Fizz at sea"] if allowed else [])
 
 
 async def test_guessing_waits_for_the_script(deps: GameDeps, realtime: RecordingRealtime):

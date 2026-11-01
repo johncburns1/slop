@@ -4,12 +4,13 @@
 The LLM gets a ``GameSummary`` built here from the game, with teams and
 players by name, never the domain objects themselves. Awards are a bonus: if
 the LLM fails or writes something unusable, the game just ends without them.
+Each award is moderated before it is shown, and one that is blocked is dropped.
 """
 
 from slop.application.engine import GameDeps, commit, load_game
 from slop.domain.award import Award
 from slop.domain.events import AwardsGiven
-from slop.domain.game import Game, GameStatus
+from slop.domain.game import ContentTone, Game, GameStatus
 from slop.domain.personalities import PERSONALITIES
 from slop.domain.round import Round
 from slop.ports.llm import (
@@ -27,8 +28,9 @@ async def give_awards(deps: GameDeps, game: Game) -> Game:
 
     Emits ``AwardsGiven`` only if the LLM returns ``AWARD_COUNT`` awards, each
     filled in and going to a team or player in the game, and the game is still
-    finished with no awards once they arrive. Otherwise nothing is emitted, and
-    nobody is told. Returns the game as it is afterwards.
+    finished with no awards once they arrive. Awards that moderation blocks are
+    left out of it, and if that leaves none it isn't emitted either. When
+    nothing is emitted, nobody is told. Returns the game as it is afterwards.
     """
     summary = summarize(game)
     try:
@@ -36,6 +38,9 @@ async def give_awards(deps: GameDeps, game: Game) -> Game:
     except LLMError:
         return game
     if not _usable(awards, summary):
+        return game
+    awards = [award for award in awards if await _allowed(deps, award, summary.content_tone)]
+    if not awards:
         return game
 
     # The LLM takes a while, so pick up anything that happened meanwhile.
@@ -89,6 +94,11 @@ def _personality_name(personality_id: str | None) -> str | None:
         return None
     personality = PERSONALITIES.get(personality_id)
     return personality.name if personality is not None else personality_id
+
+
+async def _allowed(deps: GameDeps, award: Award, tone: ContentTone) -> bool:
+    shown = "\n".join((award.title, award.recipient, award.reason))
+    return (await deps.moderation.check(shown, tone)).allowed
 
 
 def _usable(awards: list[Award], summary: GameSummary) -> bool:

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, Private, commit, load_game
 from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
+from slop.application.moderation import check_player_text
 from slop.domain.errors import GameRuleError
 from slop.domain.events import (
     GameEvent,
@@ -76,6 +77,7 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
         GameNotFoundError: If there is no such game
         GameRuleError: If no round is open for guessing, the player isn't in
             the game or is on the acting team, or the guess is blank
+        ContentBlockedError: If moderation blocks the guess
     """
     game = await load_game(deps, command.game_id)
     current = _round_open_for_guessing(game)
@@ -87,6 +89,7 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
     guess = " ".join(command.guess.split())
     if not guess:
         raise GameRuleError("A guess can't be blank")
+    await check_player_text(deps, game, guess, "That guess")
 
     return await commit(
         deps,

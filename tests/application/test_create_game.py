@@ -5,6 +5,7 @@ import pytest
 from slop.adapters.clock import FixedClock
 from slop.adapters.ids import SequentialIds
 from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.create_game import (
@@ -62,7 +63,12 @@ async def test_a_taken_room_code_is_skipped(
 ):
     ids = SequentialIds(["ABCD", "ABCD", "WXYZ"])
     deps = GameDeps(
-        storage=storage, realtime=realtime, clock=clock, ids=ids, llm=StandInLLMAdapter()
+        storage=storage,
+        realtime=realtime,
+        clock=clock,
+        ids=ids,
+        llm=StandInLLMAdapter(),
+        moderation=StandInModerationAdapter(),
     )
     first = await create_game(deps, CreateGame(content_tone=ContentTone.FAMILY))
 
@@ -78,7 +84,12 @@ async def test_it_gives_up_when_every_room_code_is_taken(
 ):
     ids = SequentialIds(["ABCD"] * (ROOM_CODE_ATTEMPTS + 1))
     deps = GameDeps(
-        storage=storage, realtime=realtime, clock=clock, ids=ids, llm=StandInLLMAdapter()
+        storage=storage,
+        realtime=realtime,
+        clock=clock,
+        ids=ids,
+        llm=StandInLLMAdapter(),
+        moderation=StandInModerationAdapter(),
     )
     await create_game(deps, CreateGame(content_tone=ContentTone.FAMILY))
 

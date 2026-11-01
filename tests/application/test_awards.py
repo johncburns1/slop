@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, replace
 import pytest
 
 from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.awards import give_awards, summarize
@@ -193,3 +194,57 @@ async def test_awards_are_not_given_if_the_group_played_again_meanwhile(
 
     assert after.status == GameStatus.PERSONALITY_SELECTION
     assert await storage.get_events(game.id) == before
+
+
+def moderated(deps: GameDeps, awards: list[Award]) -> GameDeps:
+    """``deps`` giving ``awards``, moderated: "gloop" always blocked, "fizz" for families."""
+    moderation = StandInModerationAdapter(blocked_always=["gloop"], blocked_for_family=["fizz"])
+    return replace(deps, llm=FakeLLM(awards=awards), moderation=moderation)
+
+
+async def test_awards_moderation_blocks_are_dropped_and_the_rest_are_given(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    clean = awards_to("Red Team", "Blue Team")
+    flagged = Award(title="Gloop of the Night", recipient="Player 3", reason="For trying.")
+    deps = moderated(deps, [clean[0], flagged, clean[1]])
+    game = await finished(deps, realtime, won_by_red())
+
+    game = await give_awards(deps, game)
+
+    assert game.awards == clean
+    awarded = (await storage.get_events(game.id))[-1]
+    assert isinstance(awarded, AwardsGiven)
+    assert awarded.awards == clean
+    assert realtime.broadcasts_to(game.room_code)[-1] == awarded
+
+
+async def test_when_every_award_is_blocked_the_game_just_ends(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    awards = [Award(title="Gloop", recipient=r, reason="Hi.") for r in ("Red Team", "Blue Team")]
+    deps = moderated(deps, [*awards, Award(title="Hi", recipient="Player 1", reason="Gloop.")])
+    game = await finished(deps, realtime, won_by_red())
+    before = await storage.get_events(game.id)
+
+    after = await give_awards(deps, game)
+
+    assert (after.status, after.awards) == (GameStatus.FINISHED, [])
+    assert await storage.get_events(game.id) == before
+    assert AwardsGiven not in {type(e) for e in realtime.broadcasts_to(game.room_code)}
+
+
+@pytest.mark.parametrize(("tone", "kept"), [(ContentTone.FAMILY, 2), (ContentTone.ADULT, 3)])
+async def test_family_games_drop_awards_adult_games_keep(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone, kept: int
+):
+    awards = awards_to("Red Team", "Blue Team", "Player 1")
+    awards[2] = Award(title="Fizz Champion", recipient="Player 1", reason="Fizz all night.")
+    deps = moderated(deps, awards)
+    game = won_by_red()
+    game.settings.content_tone = tone
+    game = await finished(deps, realtime, game)
+
+    game = await give_awards(deps, game)
+
+    assert len(game.awards) == kept

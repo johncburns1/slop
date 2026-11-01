@@ -10,6 +10,7 @@ import random
 from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, commit, load_game
+from slop.application.moderation import check_player_text
 from slop.domain.errors import GameRuleError
 from slop.domain.events import (
     GameEvent,
@@ -96,6 +97,7 @@ async def create_team(deps: GameDeps, command: CreateTeam) -> NewTeam:
         GameNotFoundError: If there is no such game
         GameRuleError: If the game has left the lobby, the player isn't in it,
             or the name or color is blank, too long, or already taken
+        ContentBlockedError: If moderation blocks the name
     """
     game = await load_game(deps, command.game_id)
     player = _lobby_player(game, command.player_id)
@@ -111,6 +113,7 @@ async def create_team(deps: GameDeps, command: CreateTeam) -> NewTeam:
         raise GameRuleError("Team color can't be blank")
     if any(team.color.casefold() == color.casefold() for team in game.teams):
         raise GameRuleError(f"The color {color} is already taken in this game")
+    await check_player_text(deps, game, name, "That team name")
 
     team_id = deps.ids.new_id()
     game = await commit(

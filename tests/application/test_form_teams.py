@@ -1,7 +1,10 @@
 """Tests for forming teams in the lobby."""
 
+from dataclasses import replace
+
 import pytest
 
+from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps, load_game
@@ -24,7 +27,7 @@ from slop.domain import (
     TeamDisbanded,
     TeamFormed,
 )
-from slop.domain.errors import GameRuleError
+from slop.domain.errors import ContentBlockedError, GameRuleError
 from tests.builders import lobby_with_two_teams, lobby_without_teams
 from tests.evidence import write_evidence
 
@@ -103,6 +106,20 @@ async def test_bad_or_duplicate_team_names_and_colors_are_rejected(
 
     with pytest.raises(GameRuleError, match=error):
         await create_team(deps, CreateTeam(game.id, "player-1", name, color))
+
+    assert await load_game(deps, game.id) == game
+    assert await storage.get_events(game.id) == []
+    assert realtime.received_by("socket-1") == []
+
+
+async def test_a_team_name_moderation_blocks_is_rejected_without_a_trace(
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+):
+    deps = replace(deps, moderation=StandInModerationAdapter(blocked_always=["gloop"]))
+    game = await seat(storage, realtime, lobby_with_two_teams())
+
+    with pytest.raises(ContentBlockedError, match="That team name isn't allowed"):
+        await create_team(deps, CreateTeam(game.id, "player-1", "Gloop Squad", "#123456"))
 
     assert await load_game(deps, game.id) == game
     assert await storage.get_events(game.id) == []

@@ -47,15 +47,21 @@ is a team or player name. If no awards could be written, ``AwardsGiven`` is
 simply never sent; ``play_again`` clears them. A rejected message gets
 ``error`` with ``{code, message, request}``, sent only to its sender, and the
 same object as its ack. ``code`` is ``invalid_payload``, ``not_in_game`` (the
-connection hasn't joined a game), ``game_not_found``, ``rule_broken``, or
-``rate_limited``; ``message`` is safe to show to players and ``request`` is the
-message name.
+connection hasn't joined a game), ``game_not_found``, ``rule_broken``,
+``rate_limited``, or ``content_blocked`` (moderation blocked a name, team
+name, prompt, or guess for the game's content setting; the player can try
+different words); ``message`` is safe to show to players and ``request`` is
+the message name.
 
 Each connection may send 10 messages a second on average, in bursts of up to
 20 (``slop serve --rate-limit/--rate-burst``, see ``slop.api.rate_limit``). A
 message over the limit is dropped unprocessed and gets ``rate_limited``; the
 rest of the game carries on. The allowance comes back with time and starts
 afresh on a new connection.
+
+Scripts and awards are moderated too. A blocked script is regenerated once,
+and if that is blocked as well the acting team gets ``ScriptGenerationFailed``
+as if generation had failed. A blocked award is left out of ``AwardsGiven``.
 """
 
 from collections.abc import Awaitable, Callable
@@ -111,7 +117,7 @@ from slop.application.leave_game import LeaveGame, leave_game
 from slop.application.play_again import PlayAgain, play_again
 from slop.application.rejoin_game import RejoinGame, rejoin_game
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
-from slop.domain.errors import GameNotFoundError, GameRuleError
+from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 
 ERROR = "error"
 RATE_LIMITED = "Too many messages, slow down"
@@ -260,6 +266,8 @@ class GameMessages:
                 rejected = _error("not_in_game", str(error), name)
             except GameNotFoundError as error:
                 rejected = _error("game_not_found", str(error), name)
+            except ContentBlockedError as error:
+                rejected = _error("content_blocked", str(error), name)
             except GameRuleError as error:
                 rejected = _error("rule_broken", str(error), name)
             else:

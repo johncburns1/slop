@@ -330,3 +330,36 @@ async def test_a_flooding_client_is_rate_limited_alone() -> None:
         clock.advance(timedelta(seconds=1))
         joined = await t.send("flooder", "join_game", {**lookup, "room_code": room_code})
         assert "player_id" in joined
+
+
+async def test_text_moderation_blocks_is_an_error_to_the_sender_only() -> None:
+    """With the server's stand-in moderation, a family game refuses a mature name and guess."""
+    async with table() as t:
+        room_code = await lobby(t, "alice", "bob", "carol", "dave")
+        await t.connect("eve")
+        name = await t.send("eve", "join_game", {"room_code": room_code, "player_name": "Sexy Eve"})
+        red = await t.send("alice", "create_team", {"team_name": "Red", "color": "#f00"})
+        await t.send("bob", "join_team", {"team_id": red["team_id"]})
+        blue = await t.send("carol", "create_team", {"team_name": "Blue", "color": "#00f"})
+        await t.send("dave", "join_team", {"team_id": blue["team_id"]})
+        await t.send("alice", "start_personality_selection")
+        await t.send("alice", "assign_personality", {"personality_id": "noir"})
+        await t.send("carol", "assign_personality", {"personality_id": "melodrama"})
+        await t.send("bob", "submit_prompt", {"prompt": "a haunted vending machine"})
+
+        guess = await t.send("carol", "submit_guess", {"guess": "a damn snack machine"})
+
+        assert name == {
+            "code": "content_blocked",
+            "message": "That name isn't allowed in this game. Try something else.",
+            "request": "join_game",
+        }
+        assert guess["code"] == "content_blocked"
+        assert guess["request"] == "submit_guess"
+        assert await t.errors("eve") == [name]
+        assert await t.errors("carol") == [guess]
+        for other in ("alice", "bob", "dave"):
+            assert await t.errors(other) == []
+            types = await t.types(other)
+            assert types.count("PlayerJoined") <= 4
+            assert "GuessSubmitted" not in types
