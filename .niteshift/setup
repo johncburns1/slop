@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Install the Python toolchain and project dependencies. Safe to rerun:
+# uv only installs what's missing or out of date with uv.lock.
+set -euo pipefail
+
+cd "$NITESHIFT_CHECKOUT_ROOT/slop"
+
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+
+# .python-version pins 3.13; the sandbox default (3.15) can't build pydantic-core.
+uv python install 3.13
+uv sync --all-extras
+
+# Game data lives outside the repo (and outside /data, which unmounts on suspend).
+mkdir -p "$HOME/.local/share/slop"
