@@ -2,14 +2,15 @@
 
 `slop serve` starts the server. Each setting comes from a flag, then an env var,
 then a default, so several copies can run side by side with different ports and
-data directories. Games are stored in a SQLite file in the data directory, and
-scripts come from the LLM adapter named by `--llm` (only the stand-in so far).
+data directories. Games are stored in a SQLite file in the data directory,
+scripts come from the LLM adapter named by `--llm` (only the stand-in so far),
+and `--rate-limit`/`--rate-burst` cap how fast each connection may send messages.
 """
 
 import argparse
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import uvicorn
@@ -17,6 +18,7 @@ import uvicorn
 from slop.adapters.llm import StandInLLMAdapter
 from slop.adapters.storage import SQLiteStorage
 from slop.api import create_app
+from slop.api.rate_limit import DEFAULT_BURST, DEFAULT_PER_SECOND, RateLimit
 from slop.ports.llm import LLMPort
 
 DEFAULT_HOST = "127.0.0.1"
@@ -34,16 +36,19 @@ class ServeSettings:
     port: int
     data_dir: Path
     llm: str = DEFAULT_LLM
+    rate_limit: RateLimit = field(default_factory=RateLimit)
 
 
-def _env_port(parser: argparse.ArgumentParser) -> int:
-    raw = os.environ.get("SLOP_PORT")
+def _env_number[N: (int, float)](
+    parser: argparse.ArgumentParser, name: str, kind: type[N], default: N
+) -> N:
+    raw = os.environ.get(name)
     if raw is None:
-        return DEFAULT_PORT
+        return default
     try:
-        return int(raw)
+        return kind(raw)
     except ValueError:
-        parser.error(f"SLOP_PORT must be an integer, got {raw!r}")
+        parser.error(f"{name} must be a{'n integer' if kind is int else ' number'}, got {raw!r}")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
@@ -63,17 +68,44 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
         choices=sorted(LLM_ADAPTERS),
         help=f"which LLM writes scripts (env SLOP_LLM, default {DEFAULT_LLM})",
     )
+    serve.add_argument(
+        "--rate-limit",
+        type=float,
+        help="messages per second each connection may send "
+        f"(env SLOP_RATE_LIMIT, default {DEFAULT_PER_SECOND:g})",
+    )
+    serve.add_argument(
+        "--rate-burst",
+        type=int,
+        help="messages a connection may send at once "
+        f"(env SLOP_RATE_BURST, default {DEFAULT_BURST})",
+    )
     args = parser.parse_args(argv)
     llm = args.llm or os.environ.get("SLOP_LLM", DEFAULT_LLM)
     if llm not in LLM_ADAPTERS:
         serve.error(f"SLOP_LLM must be one of {', '.join(sorted(LLM_ADAPTERS))}, got {llm!r}")
 
+    try:
+        rate_limit = RateLimit(
+            per_second=args.rate_limit
+            if args.rate_limit is not None
+            else _env_number(serve, "SLOP_RATE_LIMIT", float, DEFAULT_PER_SECOND),
+            burst=args.rate_burst
+            if args.rate_burst is not None
+            else _env_number(serve, "SLOP_RATE_BURST", int, DEFAULT_BURST),
+        )
+    except ValueError as error:
+        serve.error(str(error))
+
     env_data_dir = os.environ.get("SLOP_DATA_DIR")
     return ServeSettings(
         host=args.host or os.environ.get("SLOP_HOST", DEFAULT_HOST),
-        port=args.port if args.port is not None else _env_port(serve),
+        port=args.port
+        if args.port is not None
+        else _env_number(serve, "SLOP_PORT", int, DEFAULT_PORT),
         data_dir=args.data_dir or (Path(env_data_dir) if env_data_dir else DEFAULT_DATA_DIR),
         llm=llm,
+        rate_limit=rate_limit,
     )
 
 
@@ -84,5 +116,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     app = create_app(
         storage=SQLiteStorage(settings.data_dir / DATABASE_FILE),
         llm=LLM_ADAPTERS[settings.llm](),
+        rate_limit=settings.rate_limit,
     )
     uvicorn.run(app, host=settings.host, port=settings.port)

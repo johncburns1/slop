@@ -17,6 +17,7 @@ import pytest
 import socketio
 
 from slop.adapters.storage import SQLiteStorage
+from slop.api.rate_limit import RateLimit
 from slop.cli import (
     DATABASE_FILE,
     DEFAULT_DATA_DIR,
@@ -29,12 +30,15 @@ from slop.cli import (
 
 
 def test_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR", "SLOP_LLM"):
+    for name in ("SLOP_HOST", "SLOP_PORT", "SLOP_DATA_DIR", "SLOP_LLM", "SLOP_RATE_LIMIT"):
         monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.delenv("SLOP_RATE_BURST", raising=False)
 
     assert parse_args(["serve"]) == ServeSettings(
         host=DEFAULT_HOST, port=DEFAULT_PORT, data_dir=DEFAULT_DATA_DIR
     )
+    assert parse_args(["serve"]).rate_limit == RateLimit()
 
 
 def test_serve_reads_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,6 +91,38 @@ def test_serve_rejects_unknown_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SLOP_LLM")
     with pytest.raises(SystemExit):
         parse_args(["serve", "--llm", "no-such-llm"])
+
+
+def test_serve_reads_rate_limit_from_flags_then_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_RATE_LIMIT", "2.5")
+    monkeypatch.setenv("SLOP_RATE_BURST", "5")
+
+    assert parse_args(["serve"]).rate_limit == RateLimit(per_second=2.5, burst=5)
+    flags = ["serve", "--rate-limit", "30", "--rate-burst", "60"]
+    assert parse_args(flags).rate_limit == RateLimit(per_second=30, burst=60)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["serve", "--rate-limit", "0"],
+        ["serve", "--rate-burst", "0"],
+        ["serve", "--rate-limit", "fast"],
+    ],
+)
+def test_serve_rejects_bad_rate_limits(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLOP_RATE_LIMIT", raising=False)
+    monkeypatch.delenv("SLOP_RATE_BURST", raising=False)
+
+    with pytest.raises(SystemExit):
+        parse_args(argv)
+
+
+def test_serve_rejects_a_bad_rate_limit_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_RATE_BURST", "lots")
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve"])
 
 
 def free_ports(count: int) -> list[int]:

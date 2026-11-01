@@ -196,7 +196,9 @@ class PlayerViewReply(Reply):
     awards: list[AwardView]
 
 
-ErrorCode = Literal["invalid_payload", "not_in_game", "game_not_found", "rule_broken"]
+ErrorCode = Literal[
+    "invalid_payload", "not_in_game", "game_not_found", "rule_broken", "rate_limited"
+]
 
 
 class ErrorMessage(BaseModel):

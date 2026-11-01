@@ -47,8 +47,15 @@ is a team or player name. If no awards could be written, ``AwardsGiven`` is
 simply never sent; ``play_again`` clears them. A rejected message gets
 ``error`` with ``{code, message, request}``, sent only to its sender, and the
 same object as its ack. ``code`` is ``invalid_payload``, ``not_in_game`` (the
-connection hasn't joined a game), ``game_not_found``, or ``rule_broken``;
-``message`` is safe to show to players and ``request`` is the message name.
+connection hasn't joined a game), ``game_not_found``, ``rule_broken``, or
+``rate_limited``; ``message`` is safe to show to players and ``request`` is the
+message name.
+
+Each connection may send 10 messages a second on average, in bursts of up to
+20 (``slop serve --rate-limit/--rate-burst``, see ``slop.api.rate_limit``). A
+message over the limit is dropped unprocessed and gets ``rate_limited``; the
+rest of the game carries on. The allowance comes back with time and starts
+afresh on a new connection.
 """
 
 from collections.abc import Awaitable, Callable
@@ -57,6 +64,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ValidationError
 
 from slop.adapters.websocket import SocketIORealtime
+from slop.api.rate_limit import RateLimiter
 from slop.api.schemas import (
     CreateGameRequest,
     CreateTeamRequest,
@@ -106,6 +114,7 @@ from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain.errors import GameNotFoundError, GameRuleError
 
 ERROR = "error"
+RATE_LIMITED = "Too many messages, slow down"
 
 
 class NotInGameError(GameRuleError):
@@ -123,9 +132,12 @@ class Seat:
 class GameMessages:
     """Turns client messages into use case calls."""
 
-    def __init__(self, deps: GameDeps, realtime: SocketIORealtime) -> None:
+    def __init__(
+        self, deps: GameDeps, realtime: SocketIORealtime, rate_limiter: RateLimiter
+    ) -> None:
         self._deps = deps
         self._realtime = realtime
+        self._rate_limiter = rate_limiter
         self._seats: dict[str, Seat] = {}
 
     def register(self) -> None:
@@ -226,6 +238,7 @@ class GameMessages:
     async def disconnected(self, sid: str) -> None:
         """Forget the connection. Its player stays in the game, to reconnect later."""
         self._seats.pop(sid, None)
+        self._rate_limiter.forget(sid)
 
     def _seat(self, sid: str) -> Seat:
         seat = self._seats.get(sid)
@@ -237,6 +250,8 @@ class GameMessages:
         self, name: str, request: type[R], handle: Callable[[str, R], Awaitable[Reply | None]]
     ) -> None:
         async def receive(sid: str, payload: object) -> dict[str, object] | None:
+            if not self._rate_limiter.allow(sid):
+                return await self._reject(sid, _error("rate_limited", RATE_LIMITED, name))
             try:
                 reply = await handle(sid, request.model_validate(payload or {}))
             except ValidationError as error:
@@ -249,11 +264,15 @@ class GameMessages:
                 rejected = _error("rule_broken", str(error), name)
             else:
                 return _dump(reply)
-            body = rejected.model_dump(mode="json")
-            await self._realtime.send_message(sid, ERROR, body)
-            return body
+            return await self._reject(sid, rejected)
 
         self._realtime.on_message(name, receive)
+
+    async def _reject(self, sid: str, rejected: ErrorMessage) -> dict[str, object]:
+        """Send the error to the sender only, and return it for the ack."""
+        body = rejected.model_dump(mode="json")
+        await self._realtime.send_message(sid, ERROR, body)
+        return body
 
 
 def _error(code: ErrorCode, message: str, request: str) -> ErrorMessage:
