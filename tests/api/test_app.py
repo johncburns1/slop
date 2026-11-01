@@ -3,14 +3,22 @@
 import asyncio
 import json
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from slop import __version__
+from slop.adapters.clock import FixedClock
+from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import SocketIORealtime
 from slop.api import create_app
 from slop.api.schemas import HealthResponse
+from slop.domain import Game
 from tests.adapters.websocket.contract import make_game_created, make_script_generated
 from tests.socketio_clients import Listener, serving
+
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 async def get(path: str) -> tuple[int, dict[str, Any]]:
@@ -89,3 +97,33 @@ async def test_served_app_delivers_realtime_events_over_socketio() -> None:
         finally:
             await alice.client.disconnect()
             await bob.client.disconnect()
+
+
+class FlakyStorage(InMemoryStorage):
+    """Fails the first time it is asked to list games."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.listed = 0
+
+    async def list_games(self) -> list[Game]:
+        self.listed += 1
+        if self.listed == 1:
+            raise OSError("disk hiccup")
+        return await super().list_games()
+
+
+async def test_expiry_keeps_sweeping_after_a_failure(caplog: pytest.LogCaptureFixture) -> None:
+    storage = FlakyStorage()
+    await storage.save_snapshot(Game(id="game-1", room_code="ABCD", last_event_at=T0))
+    clock = FixedClock(T0 + timedelta(hours=2))
+    app = create_app(storage=storage, clock=clock, expire_every=timedelta(milliseconds=1))
+
+    async with app.router.lifespan_context(app):
+        for _ in range(500):
+            if await storage.get_snapshot("game-1") is None:
+                break
+            await asyncio.sleep(0.01)
+
+    assert await storage.get_snapshot("game-1") is None
+    assert "Expiring games failed" in caplog.text

@@ -1,5 +1,7 @@
 """Tests for rebuilding game state from events."""
 
+from dataclasses import replace
+
 import pytest
 
 from slop.domain import (
@@ -47,9 +49,17 @@ def test_game_created_starts_a_lobby_with_its_settings():
     assert game.room_code == "ABCD"
     assert game.status == GameStatus.LOBBY
     assert game.created_at == T0
+    assert game.last_event_at == T0
     assert game.settings.content_tone == ContentTone.ADULT
     assert game.settings.max_players == 8
     assert game.settings.rounds_per_team == 2
+
+
+def test_every_event_moves_the_last_event_time_on():
+    events = lobby_events()
+
+    for count in range(1, len(events) + 1):
+        assert replay(events[:count]).last_event_at == events[count - 1].timestamp
 
 
 def test_players_join_and_the_first_one_is_the_creator():
@@ -230,7 +240,10 @@ def test_personality_revealed_is_a_notification_only():
         game_id=GAME_ID, round_number=0, team_id="team-1", personality_id="noir"
     )
 
-    assert apply_event(before, revealed) == before
+    after = apply_event(before, revealed)
+
+    assert after.last_event_at == revealed.timestamp
+    assert replace(after, last_event_at=before.last_event_at) == before
 
 
 def test_a_wrong_personality_guess_is_marked_incorrect():

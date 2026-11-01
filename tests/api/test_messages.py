@@ -1,5 +1,6 @@
 """Tests for the client messages, played by real Socket.IO clients on a running server."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from slop.adapters.clock import FixedClock
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import SocketIORealtime
 from slop.api import create_app
+from slop.api.app import EXPIRY_TASK
 from slop.api.rate_limit import RateLimit
 from slop.domain.events import GameEvent
 from slop.domain.game import GameStatus
@@ -363,3 +365,41 @@ async def test_text_moderation_blocks_is_an_error_to_the_sender_only() -> None:
             types = await t.types(other)
             assert types.count("PlayerJoined") <= 4
             assert "GuessSubmitted" not in types
+
+
+async def test_the_server_deletes_expired_games_and_their_room_codes_stop_resolving() -> None:
+    """The server sweeps for expired games every few milliseconds, on a clock the test moves."""
+    clock = FixedClock(datetime(2026, 1, 1, tzinfo=UTC))
+    options = {"clock": clock, "expire_every": timedelta(milliseconds=10)}
+    async with table(**options) as t:
+        old_room = await lobby(t, "alice")
+        old_ids = await player_ids(t, old_room)
+        old_game = await t.storage.get_game_by_room_code(old_room)
+        assert old_game is not None
+        clock.advance(timedelta(hours=2))
+        await t.players.pop("alice").client.disconnect()
+        new_room = await lobby(t, "bob")
+
+        for _ in range(500):
+            if await t.storage.get_snapshot(old_game.id) is None:
+                break
+            await asyncio.sleep(0.01)
+
+        assert await t.storage.get_snapshot(old_game.id) is None
+        assert await t.storage.get_events(old_game.id) == []
+        await t.connect("alice")
+        rejoin = {"room_code": old_room, "player_id": old_ids["alice"]}
+        assert (await t.send("alice", "rejoin_game", rejoin))["code"] == "game_not_found"
+        join = {"room_code": old_room, "player_name": "alice"}
+        assert (await t.send("alice", "join_game", join))["code"] == "game_not_found"
+        assert "player_id" in await t.send("alice", "join_game", {**join, "room_code": new_room})
+        new_game = await t.storage.get_game_by_room_code(new_room)
+        assert new_game is not None
+        assert [p.name for p in new_game.players] == ["bob", "alice"]
+
+
+async def test_the_expiry_sweep_stops_with_the_server() -> None:
+    async with table(expire_every=timedelta(milliseconds=10)):
+        assert [t for t in asyncio.all_tasks() if t.get_name() == EXPIRY_TASK]
+
+    assert not [t for t in asyncio.all_tasks() if t.get_name() == EXPIRY_TASK]

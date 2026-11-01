@@ -134,6 +134,15 @@ class SQLiteStorage:
             row = conn.execute(query, (key,)).fetchone()
         return _GAME_JSON.validate_json(row[0]) if row is not None else None
 
+    async def list_games(self) -> list[Game]:
+        """Return every stored snapshot."""
+        return await asyncio.to_thread(self._list_games)
+
+    def _list_games(self) -> list[Game]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT payload FROM snapshots ORDER BY rowid").fetchall()
+        return [_GAME_JSON.validate_json(payload) for (payload,) in rows]
+
     async def delete_game(self, game_id: str) -> None:
         """Remove the game's events and snapshot. Unknown games are ignored."""
         await asyncio.to_thread(self._delete_game, game_id)

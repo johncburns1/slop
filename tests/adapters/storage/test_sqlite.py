@@ -1,6 +1,8 @@
 """Tests for the SQLite storage adapter."""
 
+import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -64,3 +66,23 @@ async def test_unknown_stored_event_type_is_an_error(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="NoSuchEvent"):
         await storage.get_events("game-1")
+
+
+async def test_a_snapshot_saved_before_games_tracked_their_last_event_still_loads(
+    tmp_path: Path,
+) -> None:
+    """It counts as active from when it is loaded, so an upgrade expires nothing early."""
+    path = tmp_path / "slop.db"
+    storage = SQLiteStorage(path)
+    await storage.save_snapshot(make_game())
+    with sqlite3.connect(path) as conn:
+        (payload,) = conn.execute("SELECT payload FROM snapshots").fetchone()
+        old = json.loads(payload)
+        del old["last_event_at"]
+        conn.execute("UPDATE snapshots SET payload = ?", (json.dumps(old),))
+    before = datetime.now(UTC)
+
+    loaded = await storage.get_snapshot("game-1")
+
+    assert loaded is not None
+    assert loaded.last_event_at >= before

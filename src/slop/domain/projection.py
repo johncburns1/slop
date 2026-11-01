@@ -232,6 +232,7 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             game.set_personality_selection_phase()
         case _:
             raise ProjectionError(f"No projection for event type {event.event_type}")
+    game.last_event_at = event.timestamp
     return game
 
 
@@ -247,6 +248,7 @@ def _created(event: GameCreated) -> Game:
             max_players=event.max_players,
         ),
         created_at=event.timestamp,
+        last_event_at=event.timestamp,
     )
 
 

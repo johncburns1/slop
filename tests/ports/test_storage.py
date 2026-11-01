@@ -21,6 +21,7 @@ def test_storage_port_has_required_methods():
     assert hasattr(StoragePort, "save_snapshot")
     assert hasattr(StoragePort, "get_snapshot")
     assert hasattr(StoragePort, "get_game_by_room_code")
+    assert hasattr(StoragePort, "list_games")
     assert hasattr(StoragePort, "delete_game")
 
 
@@ -57,6 +58,10 @@ class MockEventSourcedStorageAdapter:
         if game_id:
             return self._snapshots.get(game_id)
         return None
+
+    async def list_games(self) -> list[Game]:
+        """Mock list games implementation."""
+        return list(self._snapshots.values())
 
     async def delete_game(self, game_id: str) -> None:
         """Mock delete game implementation."""

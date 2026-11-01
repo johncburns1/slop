@@ -240,6 +240,24 @@ class StoragePortContract:
         assert reloaded is not None
         assert reloaded.teams[0].score == 0
 
+    # Listing
+
+    async def test_list_games_is_empty_with_nothing_stored(self, storage: StoragePort) -> None:
+        assert await storage.list_games() == []
+
+    async def test_list_games_returns_every_latest_snapshot(self, storage: StoragePort) -> None:
+        first, second = make_game(), make_game(game_id="game-2", room_code="QRST")
+        await storage.save_snapshot(first)
+        await storage.save_snapshot(second)
+        first.start()
+        await storage.save_snapshot(first)
+
+        listed = sorted(await storage.list_games(), key=lambda game: game.id)
+
+        assert listed == [first, second]
+        listed[0].teams[0].add_score(10)
+        assert await storage.get_snapshot("game-1") == first
+
     # Deletion
 
     async def test_delete_game_removes_events_snapshot_and_room_code(
@@ -253,6 +271,7 @@ class StoragePortContract:
         assert await storage.get_events("game-1") == []
         assert await storage.get_snapshot("game-1") is None
         assert await storage.get_game_by_room_code("WXYZ") is None
+        assert await storage.list_games() == []
 
     async def test_delete_game_leaves_other_games_alone(self, storage: StoragePort) -> None:
         kept_event = make_game_created(game_id="game-2", room_code="QRST")

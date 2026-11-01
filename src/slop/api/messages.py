@@ -62,6 +62,13 @@ afresh on a new connection.
 Scripts and awards are moderated too. A blocked script is regenerated once,
 and if that is blocked as well the acting team gets ``ScriptGenerationFailed``
 as if generation had failed. A blocked award is left out of ``AwardsGiven``.
+
+Games expire: one is deleted, events and all, 2 hours after its last event,
+or 30 minutes after ``GameCompleted`` unless the host plays again (``slop
+serve --expire-idle-minutes/--expire-finished-minutes``, see
+``slop.domain.expiry``). After that its room code gets ``game_not_found`` from
+``join_game`` and ``rejoin_game``, as does any message from a connection
+still seated in it, and the code may later be given to a new game.
 """
 
 from collections.abc import Awaitable, Callable
