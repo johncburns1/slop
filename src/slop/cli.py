@@ -3,7 +3,8 @@
 `slop serve` starts the server. Each setting comes from a flag, then an env var,
 then a default, so several copies can run side by side with different ports and
 data directories. Games are stored in a SQLite file in the data directory,
-scripts come from the LLM adapter named by `--llm` (only the stand-in so far),
+scripts come from the LLM adapter named by `--llm` (the stand-in, or `claude`
+with the model from `--llm-model` and the key from ANTHROPIC_API_KEY),
 `--rate-limit`/`--rate-burst` cap how fast each connection may send messages, and
 `--expire-idle-minutes`/`--expire-finished-minutes` set when games are deleted.
 """
@@ -17,7 +18,8 @@ from pathlib import Path
 
 import uvicorn
 
-from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
+from slop.adapters.llm.claude import DEFAULT_MODEL as DEFAULT_LLM_MODEL
 from slop.adapters.storage import SQLiteStorage
 from slop.api import create_app
 from slop.api.rate_limit import DEFAULT_BURST, DEFAULT_PER_SECOND, RateLimit
@@ -28,8 +30,14 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 DEFAULT_DATA_DIR = Path(".slop-data")
 DATABASE_FILE = "slop.sqlite3"
-# Add a real provider here to make it selectable with --llm / SLOP_LLM.
-LLM_ADAPTERS: dict[str, Callable[[], LLMPort]] = {"stand-in": StandInLLMAdapter}
+# Add a real provider here to make it selectable with --llm / SLOP_LLM. Each
+# factory gets the model name from --llm-model / SLOP_LLM_MODEL.
+LLM_ADAPTERS: dict[str, Callable[[str], LLMPort]] = {
+    "stand-in": lambda _model: StandInLLMAdapter(),
+    "claude": lambda model: ClaudeLLMAdapter(model=model),
+}
+# Adapters that can't start without these env vars set.
+LLM_REQUIRED_ENV: dict[str, str] = {"claude": "ANTHROPIC_API_KEY"}
 DEFAULT_LLM = "stand-in"
 
 
@@ -39,6 +47,7 @@ class ServeSettings:
     port: int
     data_dir: Path
     llm: str = DEFAULT_LLM
+    llm_model: str = DEFAULT_LLM_MODEL
     rate_limit: RateLimit = field(default_factory=RateLimit)
     expiry: ExpiryPolicy = field(default_factory=ExpiryPolicy)
 
@@ -77,6 +86,10 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
         help=f"which LLM writes scripts (env SLOP_LLM, default {DEFAULT_LLM})",
     )
     serve.add_argument(
+        "--llm-model",
+        help=f"model the real LLM uses (env SLOP_LLM_MODEL, default {DEFAULT_LLM_MODEL})",
+    )
+    serve.add_argument(
         "--rate-limit",
         type=float,
         help="messages per second each connection may send "
@@ -104,6 +117,9 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
     llm = args.llm or os.environ.get("SLOP_LLM", DEFAULT_LLM)
     if llm not in LLM_ADAPTERS:
         serve.error(f"SLOP_LLM must be one of {', '.join(sorted(LLM_ADAPTERS))}, got {llm!r}")
+    required = LLM_REQUIRED_ENV.get(llm)
+    if required and not os.environ.get(required):
+        serve.error(f"--llm {llm} needs {required} to be set")
 
     try:
         rate_limit = RateLimit(
@@ -141,6 +157,7 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
         else _env_number(serve, "SLOP_PORT", int, DEFAULT_PORT),
         data_dir=args.data_dir or (Path(env_data_dir) if env_data_dir else DEFAULT_DATA_DIR),
         llm=llm,
+        llm_model=args.llm_model or os.environ.get("SLOP_LLM_MODEL", DEFAULT_LLM_MODEL),
         rate_limit=rate_limit,
         expiry=expiry,
     )
@@ -152,7 +169,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(
         storage=SQLiteStorage(settings.data_dir / DATABASE_FILE),
-        llm=LLM_ADAPTERS[settings.llm](),
+        llm=LLM_ADAPTERS[settings.llm](settings.llm_model),
         rate_limit=settings.rate_limit,
         expiry=settings.expiry,
     )
