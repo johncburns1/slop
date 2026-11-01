@@ -55,7 +55,7 @@ def test_a_forgotten_connection_starts_with_a_full_bucket() -> None:
     assert rate_limiter.allow("a")
 
 
-@pytest.mark.parametrize(("per_second", "burst"), [(0, 1), (-1, 1), (1, 0)])
+@pytest.mark.parametrize(("per_second", "burst"), [(0, 1), (-1, 1), (float("nan"), 1), (1, 0)])
 def test_limits_must_be_positive(per_second: float, burst: int) -> None:
     with pytest.raises(ValueError):
         RateLimit(per_second=per_second, burst=burst)

@@ -22,7 +22,7 @@ class RateLimit:
     burst: int = DEFAULT_BURST
 
     def __post_init__(self) -> None:
-        if self.per_second <= 0 or self.burst < 1:
+        if not self.per_second > 0 or self.burst < 1:  # also rejects NaN
             raise ValueError("A rate limit needs a positive rate and a burst of at least 1")
 
 
