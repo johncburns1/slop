@@ -23,7 +23,8 @@ The code follows hexagonal architecture (ports and adapters). The game state is 
 │ Application: use cases             │
 │ Domain: Game, Team, Round, Script, │
 │         events (no dependencies)   │
-│ Ports: Storage · Realtime · LLM    │
+│ Ports: Storage · Realtime · LLM ·  │
+│        Moderation                  │
 └───┬───────────────────────┬────────┘
     │                       │
  SQLite                  LLM provider
@@ -32,8 +33,8 @@ The code follows hexagonal architecture (ports and adapters). The game state is 
 
 - **Domain:** the game rules and the events they emit. It has no I/O.
 - **Application:** use cases such as creating and joining games, generating scripts, and scoring.
-- **Ports:** interfaces for storage, realtime messaging, and the LLM.
-- **Adapters:** the implementations behind those interfaces (SQLite, Socket.IO, and an LLM provider). The LLM provider can be swapped.
+- **Ports:** interfaces for storage, realtime messaging, the LLM, and moderation.
+- **Adapters:** the implementations behind those interfaces (SQLite, Socket.IO, an LLM provider, and a moderation provider). Each port also has a local stand-in for tests, and each adapter must pass that port's shared contract tests.
 
 ## Game state
 
