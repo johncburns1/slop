@@ -582,3 +582,42 @@ button:disabled {
 .my-team .team-dot {
   color: var(--team);
 }
+
+/* Finished */
+
+.headline {
+  font-size: 1.3rem;
+  overflow-wrap: anywhere;
+}
+
+.team-score {
+  font-weight: 700;
+}
+
+.awards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.awards p {
+  margin: 0;
+}
+
+.award-title {
+  font-weight: 700;
+  color: var(--accent-2);
+}
+
+.award-recipient {
+  font-weight: 700;
+}
+
+.award-recipient::before {
+  content: "> ";
+  content: "> " / "";
+  color: var(--muted);
+}

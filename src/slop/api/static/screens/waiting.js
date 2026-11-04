@@ -1,12 +1,11 @@
 // Waiting: a stand-in for the screens later slices add (personality pick,
-// acting and guessing, scores and awards). It shows the room and the game's status.
+// acting and guessing). It shows the room and the game's status.
 
 import { h, roomCodeBox, setRoomCode } from "../dom.js";
 
 const STATUS_TEXT = {
   personality_selection: "teams are picking personalities",
   playing: "the game is on",
-  finished: "game over",
 };
 
 export function mount(root) {
