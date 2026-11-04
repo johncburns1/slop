@@ -36,9 +36,9 @@ class TestClaudeLLMAdapterContract(LLMPortContract):
         return claude
 
 
-async def test_defaults_to_sonnet() -> None:
+async def test_defaults_to_haiku() -> None:
     assert ClaudeLLMAdapter(client=FakeAnthropicAPI().client()).model == DEFAULT_MODEL
-    assert DEFAULT_MODEL == "claude-sonnet-5-5"
+    assert DEFAULT_MODEL == "claude-haiku-5-5"
 
 
 async def test_script_request_carries_the_inputs(api: FakeAnthropicAPI) -> None:

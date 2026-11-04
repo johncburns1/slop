@@ -25,7 +25,7 @@ uv run ruff check --fix && uv run ruff format
 
 The client message contract is in `src/slop/api/messages.py`.
 
-Scripts come from the AI stand-in unless you ask for Claude: `ANTHROPIC_API_KEY=... uv run slop serve --llm claude` (or `SLOP_LLM=claude`). Pick the model with `--llm-model` or `SLOP_LLM_MODEL` (default `claude-sonnet-5-5`). The prompts are in `src/slop/adapters/llm/prompts.py`.
+Scripts come from the AI stand-in unless you ask for Claude: `ANTHROPIC_API_KEY=... uv run slop serve --llm claude` (or `SLOP_LLM=claude`). Pick the model with `--llm-model` or `SLOP_LLM_MODEL` (default `claude-haiku-5-5`). The prompts are in `src/slop/adapters/llm/prompts.py`.
 
 ## Validation
 
