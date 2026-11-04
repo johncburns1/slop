@@ -13,6 +13,7 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
 - ``join_team {team_id}``
 - ``shuffle_teams {}`` (host only)
 - ``start_personality_selection {}`` (host only)
+- ``list_personalities {}`` -> ``{personalities: [{id, name, description}]}``
 - ``assign_personality {personality_id}``
 - ``submit_prompt {prompt}``
 - ``submit_guess {guess}``
@@ -88,6 +89,8 @@ from slop.api.schemas import (
     JoinGameRequest,
     JoinTeamRequest,
     NoPayload,
+    PersonalitiesReply,
+    PersonalityOption,
     PersonalityRequest,
     PickWinningGuessRequest,
     PlayerViewReply,
@@ -125,6 +128,7 @@ from slop.application.play_again import PlayAgain, play_again
 from slop.application.rejoin_game import RejoinGame, rejoin_game
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
+from slop.domain.personalities import PERSONALITIES
 
 ERROR = "error"
 RATE_LIMITED = "Too many messages, slow down"
@@ -163,6 +167,7 @@ class GameMessages:
         self._route("join_team", JoinTeamRequest, self.join_team)
         self._route("shuffle_teams", NoPayload, self.shuffle_teams)
         self._route("start_personality_selection", NoPayload, self.start_personality_selection)
+        self._route("list_personalities", NoPayload, self.list_personalities)
         self._route("assign_personality", PersonalityRequest, self.assign_personality)
         self._route("submit_prompt", SubmitPromptRequest, self.submit_prompt)
         self._route("submit_guess", SubmitGuessRequest, self.submit_guess)
@@ -216,6 +221,14 @@ class GameMessages:
         seat = self._seat(sid)
         await start_personality_selection(
             self._deps, StartPersonalitySelection(seat.game_id, seat.player_id)
+        )
+
+    async def list_personalities(self, sid: str, request: NoPayload) -> PersonalitiesReply:
+        return PersonalitiesReply(
+            personalities=[
+                PersonalityOption(id=p.id, name=p.name, description=p.description)
+                for p in PERSONALITIES.values()
+            ]
         )
 
     async def assign_personality(self, sid: str, request: PersonalityRequest) -> None:
