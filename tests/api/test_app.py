@@ -100,7 +100,7 @@ async def test_served_app_delivers_realtime_events_over_socketio() -> None:
 
 
 class FlakyStorage(InMemoryStorage):
-    """Fails the first time it is asked to list games."""
+    """Fails the first time the expiry sweep lists games (startup lists them once before that)."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -108,7 +108,7 @@ class FlakyStorage(InMemoryStorage):
 
     async def list_games(self) -> list[Game]:
         self.listed += 1
-        if self.listed == 1:
+        if self.listed == 2:
             raise OSError("disk hiccup")
         return await super().list_games()
 

@@ -749,3 +749,48 @@ button:disabled {
   border-left: 6px solid var(--accent);
   font-weight: 700;
 }
+
+/* The time left to guess. Stays in view above a long script or an open keyboard. */
+.countdown {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--glow);
+}
+
+.countdown[hidden] {
+  display: none;
+}
+
+.countdown-label {
+  color: var(--muted);
+  font-weight: 400;
+  text-shadow: none;
+}
+
+.countdown-time {
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.countdown.big {
+  flex-direction: column;
+  align-items: center;
+}
+
+.countdown.big .countdown-time {
+  font-size: min(22vw, 5.5rem);
+}
+
+.countdown.urgent {
+  color: var(--error);
+}

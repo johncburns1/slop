@@ -158,11 +158,14 @@ class ScriptReady(GameEvent):
     """Emitted to the whole room when the acting team has its script.
 
     Carries nothing that would give the prompt, script, or personality away.
+    This opens guessing, which runs until ``guess_deadline``. It is None only in
+    logs written before the guess timer existed; such a round has no time limit.
     """
 
     event_type: str = "ScriptReady"
     round_number: int
     acting_team_id: str
+    guess_deadline: datetime | None = None
 
 
 class RoleAssigned(GameEvent):
@@ -182,6 +185,16 @@ class GuessSubmitted(GameEvent):
     round_number: int
     team_id: str
     guess: str
+
+
+class GuessingEnded(GameEvent):
+    """Emitted when no more guesses are taken and the acting team should judge the ones it got.
+
+    Time ran out, or the acting team ended guessing early.
+    """
+
+    event_type: str = "GuessingEnded"
+    round_number: int
 
 
 class GuessAccepted(GameEvent):

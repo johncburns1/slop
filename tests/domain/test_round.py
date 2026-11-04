@@ -1,6 +1,6 @@
 """Tests for Round and Guess domain models."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -258,3 +258,18 @@ def test_a_new_round_has_no_prompt_script_or_roles_yet():
     round_obj.set_personality_guess("noir")
     round_obj.check_personality_guess()
     assert round_obj.personality_correct is False
+
+
+def test_guess_time_is_up_from_the_deadline_on():
+    deadline = datetime(2026, 1, 1, 20, 1, tzinfo=UTC)
+    current = Round(id="round-0", round_number=0, acting_team_id="team-1", guess_deadline=deadline)
+
+    assert not current.guess_time_is_up(deadline - timedelta(seconds=1))
+    assert current.guess_time_is_up(deadline)
+    assert current.guess_time_is_up(deadline + timedelta(seconds=1))
+
+
+def test_a_round_with_no_deadline_never_runs_out_of_time():
+    current = Round(id="round-0", round_number=0, acting_team_id="team-1")
+
+    assert not current.guess_time_is_up(datetime(2099, 1, 1, tzinfo=UTC))

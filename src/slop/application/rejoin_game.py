@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from slop.application.engine import GameDeps, commit, find_game
+from slop.application.guess_and_score import overdue_guessing_events
 from slop.application.player_view import PlayerView, player_view
 from slop.domain.errors import GameRuleError
 from slop.domain.events import PlayerReconnected
@@ -31,7 +32,8 @@ async def rejoin_game(deps: GameDeps, command: RejoinGame) -> Rejoined:
 
     Works in any phase of the game. The player keeps their place: this emits
     ``PlayerReconnected``, not ``PlayerJoined``, so later private events reach
-    the new socket. Room codes match whatever the case.
+    the new socket. Room codes match whatever the case. A round past its guess
+    deadline moves to judging first, in case its timer was lost in a restart.
 
     Raises:
         GameNotFoundError: If no game has this room code
@@ -47,8 +49,8 @@ async def rejoin_game(deps: GameDeps, command: RejoinGame) -> Rejoined:
     # Join the room first so the player also hears they are back.
     await deps.realtime.join_room(command.socket_id, game.room_code)
     try:
-        game = await commit(deps, game, [event])
+        game = await commit(deps, game, [*overdue_guessing_events(game, deps.clock.now()), event])
     except Exception:
         await deps.realtime.leave_room(command.socket_id, game.room_code)
         raise
-    return Rejoined(game=game, view=player_view(game, command.player_id))
+    return Rejoined(game=game, view=player_view(game, command.player_id, deps.clock.now()))

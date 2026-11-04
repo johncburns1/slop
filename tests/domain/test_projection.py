@@ -13,6 +13,7 @@ from slop.domain import (
     GameStatus,
     Guess,
     GuessAccepted,
+    GuessingEnded,
     GuessSubmitted,
     PersonalityGuessSubmitted,
     PersonalityRevealed,
@@ -25,6 +26,7 @@ from slop.domain import (
     Role,
     RoleAssigned,
     RoundCompleted,
+    ScriptReady,
     TeamDisbanded,
     Tiebreaker,
     TiebreakerStarted,
@@ -431,3 +433,33 @@ def test_unknown_event_types_are_rejected():
 
     with pytest.raises(ProjectionError, match="Mystery"):
         apply_event(replay([created()]), Mystery(game_id=GAME_ID))
+
+
+def test_script_ready_records_the_guess_deadline_in_the_round():
+    deadline = at(72)
+    events = [
+        *lobby_events(),
+        *round_zero_events(),
+        ScriptReady(
+            game_id=GAME_ID, round_number=0, acting_team_id="team-1", guess_deadline=deadline
+        ),
+    ]
+
+    current = replay(events).rounds[0]
+
+    assert current.guess_deadline == deadline
+    assert current.guessing_open
+
+
+def test_guessing_ended_stops_guessing_but_leaves_the_round_to_be_judged():
+    events = [
+        *lobby_events(),
+        *round_zero_events(),
+        GuessingEnded(game_id=GAME_ID, round_number=0),
+    ]
+
+    current = replay(events).rounds[0]
+
+    assert current.guessing_ended is True
+    assert not current.guessing_open
+    assert current.guessing_closed is False

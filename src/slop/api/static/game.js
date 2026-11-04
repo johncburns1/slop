@@ -92,6 +92,7 @@ const reducers = {
       prompt_winner_team_id: null,
       prompt: null,
       script: null,
+      guess_deadline: null,
     };
   },
   // PromptSubmitted, ScriptGenerated, RoleAssigned, and ScriptGenerationFailed go only to the acting team.
@@ -120,7 +121,13 @@ const reducers = {
   },
   ScriptReady(view, e) {
     const round = currentRound(view, e);
-    if (round) round.phase = "guessing";
+    if (!round) return;
+    round.phase = "guessing";
+    round.guess_deadline = e.guess_deadline;
+  },
+  GuessingEnded(view, e) {
+    const round = currentRound(view, e);
+    if (round?.phase === "guessing") round.phase = "judging";
   },
   GuessSubmitted(view, e) {
     currentRound(view, e)?.guesses.push({ team_id: e.team_id, guess: e.guess, accepted: false });
@@ -202,6 +209,8 @@ class Game {
     // result: the round that just ended, while it's on screen (it isn't in the player view,
     // so a phone that reloads during it skips ahead). `endsAt` is when it goes away.
     this.state = { view: null, connected: null, restoring: false, result: null };
+    // The server's clock minus this phone's, so a phone with a wrong clock counts down correctly.
+    this._clockOffsetMs = 0;
     this._session = loadSession();
     this._listeners = new Set();
     this._socket = io({ transports: ["websocket", "polling"] });
@@ -288,6 +297,21 @@ class Game {
     return this._send("submit_guess", { guess });
   }
 
+  /** Stop taking guesses and go to judging (acting team only). */
+  endGuessing() {
+    return this._send("end_guessing", {});
+  }
+
+  /** Seconds until `round`'s guess deadline by the server's clock. Below zero once it has passed. */
+  guessSecondsLeft(round) {
+    return (Date.parse(round.guess_deadline) - (Date.now() + this._clockOffsetMs)) / 1000;
+  }
+
+  /** Ask the server where the game is. Rejoining also closes a round past its deadline. */
+  resync() {
+    return this._rejoin();
+  }
+
   /** `guessIndex` is the guess's position in the round's guesses, or null for "nobody got it". */
   pickWinningGuess(guessIndex) {
     return this._send("pick_winning_guess", { guess_index: guessIndex });
@@ -337,6 +361,7 @@ class Game {
       room_code: this._session.roomCode,
       player_id: this._session.playerId,
     });
+    this._syncClock(view.server_time);
     this._set({ view, restoring: false });
   }
 
@@ -351,6 +376,7 @@ class Game {
     const view = this.state.view;
     const reduce = reducers[name];
     if (!view || !reduce || event?.game_id !== view.game_id) return;
+    if (name === "ScriptReady") this._syncClock(event.timestamp);
     const next = structuredClone(view);
     const ended = name === "RoundCompleted" ? currentRound(next, event) : null;
     reduce(next, event);
@@ -362,6 +388,10 @@ class Game {
     if (name === "ScriptReady" && event.acting_team_id === next.team_id && !next.current_round?.script) {
       this._rejoin().catch(() => {});
     }
+  }
+
+  _syncClock(serverTime) {
+    this._clockOffsetMs = Date.parse(serverTime) - Date.now();
   }
 
   _showResult(round) {

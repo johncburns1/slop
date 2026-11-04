@@ -1,6 +1,7 @@
 """Use case: the acting team submits its prompt and gets a script to perform."""
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from slop.application.engine import GameDeps, Private, commit, load_game
 from slop.application.moderation import check_player_text
@@ -38,7 +39,7 @@ async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
     """Generate the round's script from the prompt and hand out one role per acting player.
 
     Only the acting team receives the prompt, script, and roles; the room is
-    told only that the script is ready. A script that moderation blocks
+    told only that the script is ready and when guessing ends. A script that moderation blocks
     counts as a failed attempt. If ``SCRIPT_ATTEMPTS`` attempts fail, the
     round stays waiting for a prompt and only the acting team is told
     (``ScriptGenerationFailed``) so they can submit again.
@@ -98,7 +99,13 @@ async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
             for player_id, role in zip(acting, script.roles, strict=True)
         ),
     ]
-    ready = ScriptReady(game_id=game.id, round_number=current.round_number, acting_team_id=team.id)
+    # Guessing opens now, so the time the script took to write doesn't count against it.
+    ready = ScriptReady(
+        game_id=game.id,
+        round_number=current.round_number,
+        acting_team_id=team.id,
+        guess_deadline=deps.clock.now() + timedelta(seconds=game.settings.guess_timer_seconds),
+    )
     return await commit(deps, game, [*(Private(e, acting) for e in private), ready])
 
 

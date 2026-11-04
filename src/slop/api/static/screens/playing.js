@@ -1,14 +1,20 @@
 // Playing: a round from its start until the personality guess that ends it.
 //
 // The acting team writes the prompt, reads the script from here while
-// performing, picks the winning guess, and guesses who wrote the script.
-// Everyone else sees who's acting and sends guesses. The server only sends the
-// prompt and script to the acting team, so those parts stay empty for the rest.
+// performing, picks the winning guess once guessing is over, and guesses who
+// wrote the script. Everyone else sees who's acting and sends guesses. Everyone
+// sees the time left to guess; the server keeps the deadline and says when it
+// has passed. The server only sends the prompt and script to the acting team,
+// so those parts stay empty for the rest.
 // The round's result is its own screen: see result.js.
 
 import { attempt, errorBox, h } from "../dom.js";
 
 const MAX_PROMPT_WORDS = 6;
+const TICK_MS = 250;
+const URGENT_SECONDS = 10;
+// The server closes guessing at zero. A phone that still hasn't heard by this long after asks it.
+const RESYNC_AFTER_SECONDS = 3;
 const SCRIPT_FAILED = "the AI couldn't write a script for that. try again, maybe with different words.";
 
 export function mount(root, game) {
@@ -18,10 +24,15 @@ export function mount(root, game) {
   let seenFailures = 0;
   let personalities = null;
   let loadingPersonalities = false;
+  let lastPhase = null;
+  let resynced = false;
 
   const roundLabel = h("p", { class: "eyebrow" });
   const scoreboard = h("ul", { class: "scoreboard", "aria-label": "Scores" });
   const nextUp = h("p", { class: "note" });
+  const countdownLabel = h("span", { class: "countdown-label" });
+  const countdownTime = h("span", { class: "countdown-time" });
+  const countdown = h("div", { class: "countdown", role: "timer", hidden: true }, countdownLabel, countdownTime);
 
   const promptInput = h("textarea", {
     id: "prompt",
@@ -68,7 +79,17 @@ export function mount(root, game) {
   const castList = h("ul", { class: "players" });
   const scriptLines = h("div", { class: "script" });
   // Keeps the way to judging one tap away while reading a long script.
-  const jumpButton = h("button", { type: "button", class: "primary", onclick: () => judgeForm.scrollIntoView() });
+  const guessCount = h("p", { class: "note", "aria-live": "polite" });
+  const endError = errorBox();
+  const endButton = h(
+    "button",
+    {
+      type: "button",
+      class: "primary",
+      onclick: () => attempt(endButton, endError, () => game.endGuessing()),
+    },
+    "We're done, judge now",
+  );
   const scriptView = h(
     "div",
     { class: "screen" },
@@ -77,12 +98,12 @@ export function mount(root, game) {
     castList,
     h("h2", { class: "section-title" }, "script"),
     scriptLines,
-    h("div", { class: "confirm-bar" }, jumpButton),
+    h("div", { class: "confirm-bar" }, guessCount, endError, endButton),
   );
 
   // Rows only ever get added, so a selected row stays selected while more guesses come in.
   const guessRows = h("div", { class: "options stacked" });
-  const noGuessesNote = h("p", { class: "note cursor" }, "no guesses yet");
+  const noGuessesNote = h("p", { class: "note" }, "no guesses came in");
   const nobodyRow = optionRow("winner", "nobody", "Nobody got it", "no points for the prompt", () => {
     chooseWinner("Confirm nobody got it");
   });
@@ -101,7 +122,7 @@ export function mount(root, game) {
       },
     },
     h("h2", {}, "pick the winner"),
-    h("p", { class: "note" }, "after you perform: did anyone get it? close enough counts. anyone on your team can pick."),
+    h("p", { class: "note" }, "guessing is over. did anyone get it? close enough counts. anyone on your team can pick."),
     noGuessesNote,
     guessRows,
     nobodyRow,
@@ -180,6 +201,7 @@ export function mount(root, game) {
       roundLabel,
       scoreboard,
       nextUp,
+      countdown,
       promptForm,
       writingNote,
       scriptView,
@@ -219,7 +241,23 @@ export function mount(root, game) {
       );
     }
     noGuessesNote.hidden = round.guesses.length > 0;
-    jumpButton.textContent = `Pick winner (${round.guesses.length})`;
+  }
+
+  /** Runs on every tick as well as every update, so it shows the time left as it goes. */
+  function showCountdown() {
+    const round = game.state.view?.current_round;
+    const running = round?.phase === "guessing" && Boolean(round.guess_deadline);
+    countdown.hidden = !running;
+    if (!running) return;
+    const left = game.guessSecondsLeft(round);
+    const seconds = Math.max(0, Math.ceil(left));
+    countdownLabel.textContent = seconds > 0 ? "time left" : "time's up";
+    countdownTime.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    countdown.classList.toggle("urgent", seconds <= URGENT_SECONDS);
+    if (left < -RESYNC_AFTER_SECONDS && !resynced && game.state.connected) {
+      resynced = true;
+      game.resync().catch(() => {});
+    }
   }
 
   function showMyGuesses(view, round) {
@@ -348,6 +386,7 @@ export function mount(root, game) {
     const notes = {
       waiting_for_prompt: "> they're writing their script",
       guessing: "> the script is ready. watch them perform!",
+      judging: "> guessing is over. they're picking the winner",
       guessing_personality: "> they're guessing who wrote their script",
     };
     watchNote.textContent = notes[round.phase];
@@ -388,28 +427,40 @@ export function mount(root, game) {
 
     const acting = round?.acting_team_id === view.team_id;
     const guessing = round?.phase === "guessing";
+    const judging = round?.phase === "judging";
     const judged = round?.phase === "guessing_personality";
     const needsPrompt = round && acting && !judged && !round.script;
     promptForm.hidden = !needsPrompt || writing;
     writingNote.hidden = !needsPrompt || !writing;
-    scriptView.hidden = !round || !acting || judged || !round.script;
-    judgeForm.hidden = !acting || !guessing;
-    jumpButton.hidden = !guessing;
+    scriptView.hidden = !acting || !guessing || !round.script;
+    judgeForm.hidden = !acting || !judging;
+    countdown.classList.toggle("big", !acting);
     watchView.hidden = !round || acting;
     judgedNote.hidden = !judged;
     personalityForm.hidden = !acting || !judged;
     guessForm.hidden = !round || acting || !guessing || !view.team_id;
     myGuesses.hidden = !round || acting;
     betweenRounds.hidden = Boolean(round);
+    showCountdown();
+    // The script is gone when guessing ends, so don't leave the phone scrolled down past the form.
+    if (judging && lastPhase === "guessing") window.scrollTo(0, 0);
+    if (round?.phase !== lastPhase) resynced = false;
+    lastPhase = round?.phase ?? null;
 
     if (!round) return;
     if (!acting) showWatching(view, round);
     else if (round.script && !judged) showScript(view, round);
-    if (acting && guessing) showGuessesToJudge(view, round);
+    if (acting && judging) showGuessesToJudge(view, round);
+    if (acting && guessing) {
+      const count = round.guesses.length;
+      guessCount.textContent = `${count} ${count === 1 ? "guess" : "guesses"} so far`;
+    }
     if (!acting) showMyGuesses(view, round);
     if (judged) showJudged(view, round);
     if (acting && judged && state.connected) loadPersonalities();
   }
+
+  const ticker = setInterval(showCountdown, TICK_MS);
 
   function refresh() {
     if (mounted) update(game.state);
@@ -419,6 +470,7 @@ export function mount(root, game) {
     update,
     unmount() {
       mounted = false;
+      clearInterval(ticker);
     },
   };
 }

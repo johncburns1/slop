@@ -17,6 +17,7 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
 - ``assign_personality {personality_id}``
 - ``submit_prompt {prompt}``
 - ``submit_guess {guess}``
+- ``end_guessing {}`` (acting team only: stop taking guesses and go to judging)
 - ``pick_winning_guess {guess_index}`` (an int, or null for "nobody got it")
 - ``guess_personality {personality_id}``
 - ``play_again {}`` (host only, once the game has finished)
@@ -33,14 +34,28 @@ player in the game.
 server restart: it ties the connection to the existing player (no new
 ``PlayerJoined``; the room gets ``PlayerReconnected``) and acks with
 ``{game_id, room_code, status, settings, player_id, team_id, players, teams,
-current_round, tiebreaker, my_pick, awards}``, the game as that player may
-see it (see ``slop.application.player_view``). ``current_round`` holds the
-round's ``phase`` and ``guesses``, plus its ``prompt`` and ``script`` for the
-acting team only. ``tiebreaker`` is ``{cycle, team_ids, first_round}`` once a
-tiebreaker has started (null before): those teams act in that order, in the
-rounds numbered from ``first_round``. A team's ``personality_id`` stays null until it is revealed,
+current_round, tiebreaker, my_pick, awards, server_time}``, the game as that
+player may see it (see ``slop.application.player_view``). ``current_round``
+holds the round's ``phase`` (``waiting_for_prompt``, ``guessing``, ``judging``,
+or ``guessing_personality``), ``guesses``, and ``guess_deadline``, plus its
+``prompt`` and ``script`` for the acting team only. ``tiebreaker`` is
+``{cycle, team_ids, first_round}`` once a tiebreaker has started (null
+before): those teams act in that order, in the rounds numbered from
+``first_round``. A team's ``personality_id`` stays null until it is revealed,
 ``my_pick`` is the personality the player's team picked for another team, and
 ``awards`` is the end-of-game awards (empty until given).
+
+Guessing has a time limit, which the server keeps. ``ScriptReady`` opens it
+and carries ``guess_deadline``: now plus the game's ``guess_timer_seconds``. A
+client shows the time left as ``guess_deadline`` minus the server's time, from
+the event's ``timestamp`` or the view's ``server_time``, since a phone's own
+clock may be wrong. At the deadline, or on ``end_guessing``, the room gets
+``GuessingEnded {round_number}`` and the round moves to ``judging``:
+``submit_guess`` is a ``rule_broken`` error from then on, and the acting team
+sends ``pick_winning_guess`` for one of the guesses received, or null. The
+acting team may also send that while guessing is open, which ends it at once.
+A rejoin past the deadline moves the round to ``judging`` before replying, as
+does a server starting up, for rounds overdue while it was down.
 
 The server sends game events to clients under their ``event_type`` (such as
 ``PlayerJoined``), with the event as the payload. A round's prompt goes only
@@ -119,13 +134,16 @@ from slop.application.form_teams import (
     start_personality_selection,
 )
 from slop.application.guess_and_score import (
+    EndGuessing,
     GuessPersonality,
     PickWinningGuess,
     SubmitGuess,
+    end_guessing,
     guess_personality,
     pick_winning_guess,
     submit_guess,
 )
+from slop.application.guess_timers import GuessTimers
 from slop.application.join_game import JoinGame, join_game
 from slop.application.leave_game import LeaveGame, leave_game
 from slop.application.play_again import PlayAgain, play_again
@@ -154,9 +172,14 @@ class GameMessages:
     """Turns client messages into use case calls."""
 
     def __init__(
-        self, deps: GameDeps, realtime: SocketIORealtime, rate_limiter: RateLimiter
+        self,
+        deps: GameDeps,
+        realtime: SocketIORealtime,
+        rate_limiter: RateLimiter,
+        guess_timers: GuessTimers,
     ) -> None:
         self._deps = deps
+        self._guess_timers = guess_timers
         self._realtime = realtime
         self._rate_limiter = rate_limiter
         self._seats: dict[str, Seat] = {}
@@ -175,6 +198,7 @@ class GameMessages:
         self._route("assign_personality", PersonalityRequest, self.assign_personality)
         self._route("submit_prompt", SubmitPromptRequest, self.submit_prompt)
         self._route("submit_guess", SubmitGuessRequest, self.submit_guess)
+        self._route("end_guessing", NoPayload, self.end_guessing)
         self._route("pick_winning_guess", PickWinningGuessRequest, self.pick_winning_guess)
         self._route("guess_personality", PersonalityRequest, self.guess_personality)
         self._route("play_again", NoPayload, self.play_again)
@@ -198,6 +222,7 @@ class GameMessages:
             RejoinGame(room_code=request.room_code, player_id=request.player_id, socket_id=sid),
         )
         self._seats[sid] = Seat(game_id=rejoined.game.id, player_id=request.player_id)
+        self._guess_timers.track(rejoined.game)
         return PlayerViewReply.model_validate(rejoined.view)
 
     async def leave_game(self, sid: str, request: NoPayload) -> None:
@@ -243,16 +268,28 @@ class GameMessages:
 
     async def submit_prompt(self, sid: str, request: SubmitPromptRequest) -> None:
         seat = self._seat(sid)
-        await submit_prompt(self._deps, SubmitPrompt(seat.game_id, seat.player_id, request.prompt))
+        self._guess_timers.track(
+            await submit_prompt(
+                self._deps, SubmitPrompt(seat.game_id, seat.player_id, request.prompt)
+            )
+        )
 
     async def submit_guess(self, sid: str, request: SubmitGuessRequest) -> None:
         seat = self._seat(sid)
         await submit_guess(self._deps, SubmitGuess(seat.game_id, seat.player_id, request.guess))
 
+    async def end_guessing(self, sid: str, request: NoPayload) -> None:
+        seat = self._seat(sid)
+        self._guess_timers.track(
+            await end_guessing(self._deps, EndGuessing(seat.game_id, seat.player_id))
+        )
+
     async def pick_winning_guess(self, sid: str, request: PickWinningGuessRequest) -> None:
         seat = self._seat(sid)
-        await pick_winning_guess(
-            self._deps, PickWinningGuess(seat.game_id, seat.player_id, request.guess_index)
+        self._guess_timers.track(
+            await pick_winning_guess(
+                self._deps, PickWinningGuess(seat.game_id, seat.player_id, request.guess_index)
+            )
         )
 
     async def guess_personality(self, sid: str, request: PersonalityRequest) -> None:
