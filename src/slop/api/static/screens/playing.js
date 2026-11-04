@@ -1,10 +1,10 @@
-// Playing: a round from its start until the script is ready.
+// Playing: a round from its start until the personality guess that ends it.
 //
-// The acting team writes the prompt and then reads the script from here while
-// performing. Everyone else sees who's acting. The server only ever sends the
+// The acting team writes the prompt, reads the script from here while
+// performing, picks the winning guess, and guesses who wrote the script.
+// Everyone else sees who's acting and sends guesses. The server only sends the
 // prompt and script to the acting team, so those parts stay empty for the rest.
-//
-// Slice 3b adds guessing, judging, and the personality reveal: see `laterPhase`.
+// The round's result is its own screen: see result.js.
 
 import { attempt, errorBox, h } from "../dom.js";
 
@@ -16,6 +16,8 @@ export function mount(root, game) {
   let writing = false;
   let lastRound = null;
   let seenFailures = 0;
+  let personalities = null;
+  let loadingPersonalities = false;
 
   const roundLabel = h("p", { class: "eyebrow" });
   const scoreboard = h("ul", { class: "scoreboard", "aria-label": "Scores" });
@@ -65,6 +67,8 @@ export function mount(root, game) {
   const roleCard = h("div", { class: "card host" });
   const castList = h("ul", { class: "players" });
   const scriptLines = h("div", { class: "script" });
+  // Keeps the way to judging one tap away while reading a long script.
+  const jumpButton = h("button", { type: "button", class: "primary", onclick: () => judgeForm.scrollIntoView() });
   const scriptView = h(
     "div",
     { class: "screen" },
@@ -73,14 +77,101 @@ export function mount(root, game) {
     castList,
     h("h2", { class: "section-title" }, "script"),
     scriptLines,
+    h("div", { class: "confirm-bar" }, jumpButton),
+  );
+
+  // Rows only ever get added, so a selected row stays selected while more guesses come in.
+  const guessRows = h("div", { class: "options stacked" });
+  const noGuessesNote = h("p", { class: "note cursor" }, "no guesses yet");
+  const nobodyRow = optionRow("winner", "nobody", "Nobody got it", "no points for the prompt", () => {
+    chooseWinner("Confirm nobody got it");
+  });
+  const judgeButton = h("button", { type: "submit", class: "primary" });
+  const judgeBar = h("div", { class: "confirm-bar", hidden: true }, judgeButton);
+  const judgeError = errorBox();
+  const judgeForm = h(
+    "form",
+    {
+      class: "card host",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        const value = judgeForm.querySelector("input:checked")?.value;
+        if (!value) return;
+        await attempt(judgeButton, judgeError, () => game.pickWinningGuess(value === "nobody" ? null : Number(value)));
+      },
+    },
+    h("h2", {}, "pick the winner"),
+    h("p", { class: "note" }, "after you perform: did anyone get it? close enough counts. anyone on your team can pick."),
+    noGuessesNote,
+    guessRows,
+    nobodyRow,
+    judgeError,
+    judgeBar,
+  );
+
+  const personalityRows = h("div", { class: "options stacked", role: "radiogroup", "aria-label": "Personality" });
+  const personalityLoading = h("p", { class: "note cursor" }, "loading personalities");
+  const personalityRetry = h("button", { type: "button", class: "secondary", hidden: true, onclick: loadPersonalities }, "Try again");
+  const personalityButton = h("button", { type: "submit", class: "primary" });
+  const personalityBar = h("div", { class: "confirm-bar", hidden: true }, personalityButton);
+  const personalityError = errorBox();
+  const personalityForm = h(
+    "form",
+    {
+      class: "card host",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        const id = personalityRows.querySelector("input:checked")?.value;
+        if (id) await attempt(personalityButton, personalityError, () => game.guessPersonality(id));
+      },
+    },
+    h("h2", {}, "who wrote your script?"),
+    h("p", { class: "note" }, "a right guess is +1 for your team. the first confirm counts, so agree first."),
+    personalityLoading,
+    personalityRows,
+    personalityRetry,
+    personalityError,
+    personalityBar,
   );
 
   const actingTeam = h("div", { class: "team" });
   const watchNote = h("h2", { role: "status" });
   const watchView = h("div", { class: "screen" }, actingTeam, watchNote);
 
-  // Where slice 3b's guessing, judging, and reveal screens go.
-  const laterPhase = h("p", { class: "note cursor", role: "status" });
+  const guessInput = h("input", {
+    id: "guess",
+    placeholder: "what did they type?",
+    autocomplete: "off",
+    enterkeyhint: "send",
+  });
+  const guessButton = h("button", { type: "submit", class: "primary" }, "Send guess");
+  const guessError = errorBox();
+  const guessForm = h(
+    "form",
+    {
+      class: "card host",
+      onsubmit: async (event) => {
+        event.preventDefault();
+        const sent = await attempt(guessButton, guessError, () => game.submitGuess(guessInput.value));
+        if (!sent) return;
+        guessInput.value = "";
+        guessInput.focus();
+      },
+    },
+    h("h2", {}, "guess the prompt"),
+    h("label", { for: "guess", class: "prompt" }, "your guess"),
+    guessInput,
+    h("p", { class: "note" }, "send as many as you like. the acting team picks the winner."),
+    guessButton,
+    guessError,
+  );
+  const myGuessList = h("ul", { class: "players" });
+  const myGuesses = h("div", { class: "screen" }, h("h2", { class: "section-title" }, "your team's guesses"), myGuessList);
+
+  // What the acting team decided, while it guesses the personality.
+  const judgedNote = h("p", { class: "my-team", role: "status" });
+
+  const betweenRounds = h("p", { class: "note cursor", role: "status" }, "next round coming up");
 
   root.append(
     h(
@@ -92,10 +183,90 @@ export function mount(root, game) {
       promptForm,
       writingNote,
       scriptView,
+      judgeForm,
       watchView,
-      laterPhase,
+      judgedNote,
+      personalityForm,
+      guessForm,
+      myGuesses,
+      betweenRounds,
     ),
   );
+
+  function optionRow(name, value, label, hint, onchange) {
+    return h(
+      "label",
+      { class: "option" },
+      h("input", { type: "radio", name, value, onchange }),
+      h("span", { class: "option-label" }, label),
+      h("span", { class: "option-hint" }, hint),
+    );
+  }
+
+  function chooseWinner(label) {
+    judgeButton.textContent = label;
+    judgeBar.hidden = false;
+    judgeError.hidden = true;
+  }
+
+  function showGuessesToJudge(view, round) {
+    for (let i = guessRows.children.length; i < round.guesses.length; i++) {
+      const { guess, team_id: teamId } = round.guesses[i];
+      guessRows.append(
+        optionRow("winner", String(i), guess, view.teams.find((t) => t.id === teamId)?.name ?? "", () => {
+          chooseWinner("Confirm this guess");
+        }),
+      );
+    }
+    noGuessesNote.hidden = round.guesses.length > 0;
+    jumpButton.textContent = `Pick winner (${round.guesses.length})`;
+  }
+
+  function showMyGuesses(view, round) {
+    const mine = round.guesses.filter((g) => g.team_id === view.team_id);
+    myGuesses.hidden = mine.length === 0;
+    myGuessList.replaceChildren(
+      ...mine.map((g, i) =>
+        h(
+          "li",
+          { class: g.accepted ? "player me" : "player" },
+          h("span", { class: "branch", "aria-hidden": "true" }, i === mine.length - 1 ? "└─ " : "├─ "),
+          g.guess,
+          g.accepted ? h("span", { class: "tag" }, " <winner>") : null,
+        ),
+      ),
+    );
+  }
+
+  function showJudged(view, round) {
+    const winner = round.guesses.find((g) => g.accepted);
+    const team = view.teams.find((t) => t.id === winner?.team_id);
+    judgedNote.replaceChildren(
+      ...(winner && team ? [`> winning guess: "${winner.guess}" from `, teamName(team)] : ["> nobody got it"]),
+    );
+  }
+
+  async function loadPersonalities() {
+    if (personalities || loadingPersonalities) return;
+    loadingPersonalities = true;
+    personalityRetry.hidden = true;
+    const ok = await attempt(personalityRetry, personalityError, async () => {
+      personalities = await game.personalities();
+    });
+    loadingPersonalities = false;
+    personalityLoading.hidden = true;
+    personalityRetry.hidden = ok;
+    if (!ok || !mounted) return;
+    personalityRows.replaceChildren(
+      ...personalities.map((p) =>
+        optionRow("personality", p.id, p.name, p.description, () => {
+          personalityButton.textContent = `Confirm ${p.name}`;
+          personalityBar.hidden = false;
+          personalityError.hidden = true;
+        }),
+      ),
+    );
+  }
 
   function showWordCount() {
     const count = countWords(promptInput.value);
@@ -174,9 +345,13 @@ export function mount(root, game) {
       ),
       h("p", { class: "note" }, names.join(", ")),
     );
-    const ready = round.phase !== "waiting_for_prompt";
-    watchNote.textContent = ready ? "> the script is ready. watch them perform!" : "> they're writing their script";
-    watchNote.classList.toggle("cursor", !ready);
+    const notes = {
+      waiting_for_prompt: "> they're writing their script",
+      guessing: "> the script is ready. watch them perform!",
+      guessing_personality: "> they're guessing who wrote their script",
+    };
+    watchNote.textContent = notes[round.phase];
+    watchNote.classList.toggle("cursor", round.phase !== "guessing");
   }
 
   function update(state) {
@@ -188,6 +363,15 @@ export function mount(root, game) {
       lastRound = round?.round_number ?? null;
       promptInput.value = "";
       promptError.hidden = true;
+      guessInput.value = "";
+      guessError.hidden = true;
+      guessRows.replaceChildren();
+      judgeForm.reset();
+      judgeBar.hidden = true;
+      judgeError.hidden = true;
+      personalityForm.reset();
+      personalityBar.hidden = true;
+      personalityError.hidden = true;
     }
     // Only the acting team hears about a failed script, and the submit's ack is still a success.
     const failures = round?.script_failures ?? 0;
@@ -203,18 +387,28 @@ export function mount(root, game) {
     showWordCount();
 
     const acting = round?.acting_team_id === view.team_id;
-    const later = !round || round.phase === "guessing_personality";
-    const needsPrompt = acting && !later && !round.script;
+    const guessing = round?.phase === "guessing";
+    const judged = round?.phase === "guessing_personality";
+    const needsPrompt = round && acting && !judged && !round.script;
     promptForm.hidden = !needsPrompt || writing;
     writingNote.hidden = !needsPrompt || !writing;
-    scriptView.hidden = !acting || later || !round.script;
-    watchView.hidden = acting || later;
-    laterPhase.hidden = !later;
-    laterPhase.textContent = round ? "the next part of this round is coming soon. keep this page open." : "next round coming up";
+    scriptView.hidden = !round || !acting || judged || !round.script;
+    judgeForm.hidden = !acting || !guessing;
+    jumpButton.hidden = !guessing;
+    watchView.hidden = !round || acting;
+    judgedNote.hidden = !judged;
+    personalityForm.hidden = !acting || !judged;
+    guessForm.hidden = !round || acting || !guessing || !view.team_id;
+    myGuesses.hidden = !round || acting;
+    betweenRounds.hidden = Boolean(round);
 
-    if (later) return;
+    if (!round) return;
     if (!acting) showWatching(view, round);
-    else if (round.script) showScript(view, round);
+    else if (round.script && !judged) showScript(view, round);
+    if (acting && guessing) showGuessesToJudge(view, round);
+    if (!acting) showMyGuesses(view, round);
+    if (judged) showJudged(view, round);
+    if (acting && judged && state.connected) loadPersonalities();
   }
 
   function refresh() {

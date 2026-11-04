@@ -15,6 +15,8 @@ const ACK_TIMEOUT_MS = 10000;
 // submit_prompt acks only once the script is written. The AI gets two tries of
 // up to three 20-second calls each (see adapters/llm/claude.py), plus backoff.
 const SCRIPT_ACK_TIMEOUT_MS = 150000;
+// The next round starts the moment one ends, so hold the result on screen long enough to read it.
+const RESULT_HOLD_MS = 15000;
 
 /** A message the server rejected. `code` and `message` come from its error reply. */
 export class GameError extends Error {
@@ -120,17 +122,39 @@ const reducers = {
     const round = currentRound(view, e);
     if (round) round.phase = "guessing";
   },
+  GuessSubmitted(view, e) {
+    currentRound(view, e)?.guesses.push({ team_id: e.team_id, guess: e.guess, accepted: false });
+  },
   GuessAccepted(view, e) {
     const round = currentRound(view, e);
     if (!round) return;
     round.phase = "guessing_personality";
     round.prompt_winner_team_id = e.team_id;
+    const guess = round.guesses[e.guess_index];
+    if (guess) guess.accepted = true;
   },
   NoGuessAccepted(view, e) {
     const round = currentRound(view, e);
     if (round) round.phase = "guessing_personality";
   },
+  // The rest of a round's end arrives together, just before RoundCompleted. `_apply` keeps it as the result.
+  PersonalityGuessSubmitted(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.personality_guess = e.personality_guess;
+  },
+  PersonalityRevealed(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.personality_id = e.personality_id;
+    const team = view.teams.find((t) => t.id === e.team_id);
+    if (team) team.personality_id = e.personality_id;
+  },
+  PromptRevealed(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.prompt = e.prompt;
+  },
   ScoresUpdated(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.score_changes = e.score_changes;
     for (const team of view.teams) team.score += e.score_changes[team.id] ?? 0;
   },
   RoundCompleted(view, e) {
@@ -175,7 +199,9 @@ class Game {
     // view: the player view, or null when not in a game.
     // connected: whether the socket is up (null before the first try).
     // restoring: a rejoin of the saved session is in flight.
-    this.state = { view: null, connected: null, restoring: false };
+    // result: the round that just ended, while it's on screen (it isn't in the player view,
+    // so a phone that reloads during it skips ahead). `endsAt` is when it goes away.
+    this.state = { view: null, connected: null, restoring: false, result: null };
     this._session = loadSession();
     this._listeners = new Set();
     this._socket = io({ transports: ["websocket", "polling"] });
@@ -258,6 +284,25 @@ class Game {
     });
   }
 
+  submitGuess(guess) {
+    return this._send("submit_guess", { guess });
+  }
+
+  /** `guessIndex` is the guess's position in the round's guesses, or null for "nobody got it". */
+  pickWinningGuess(guessIndex) {
+    return this._send("pick_winning_guess", { guess_index: guessIndex });
+  }
+
+  guessPersonality(personalityId) {
+    return this._send("guess_personality", { personality_id: personalityId });
+  }
+
+  /** Stop showing the round result and go on to whatever comes next. */
+  dismissResult() {
+    clearTimeout(this._resultTimer);
+    if (this.state.result) this._set({ result: null });
+  }
+
   playAgain() {
     return this._send("play_again", {});
   }
@@ -298,7 +343,8 @@ class Game {
   _forget() {
     this._session = null;
     saveSession(null);
-    this._set({ view: null, restoring: false });
+    clearTimeout(this._resultTimer);
+    this._set({ view: null, restoring: false, result: null });
   }
 
   _apply(name, event) {
@@ -306,13 +352,22 @@ class Game {
     const reduce = reducers[name];
     if (!view || !reduce || event?.game_id !== view.game_id) return;
     const next = structuredClone(view);
+    const ended = name === "RoundCompleted" ? currentRound(next, event) : null;
     reduce(next, event);
     this._set({ view: next });
+    if (ended) this._showResult(ended);
+    if (name === "GameRestarted") this.dismissResult();
     // A phone that reconnected while the script was being written can miss the team's
     // private events, but it does hear ScriptReady. Rejoining fetches the script.
     if (name === "ScriptReady" && event.acting_team_id === next.team_id && !next.current_round?.script) {
       this._rejoin().catch(() => {});
     }
+  }
+
+  _showResult(round) {
+    clearTimeout(this._resultTimer);
+    this._resultTimer = setTimeout(() => this.dismissResult(), RESULT_HOLD_MS);
+    this._set({ result: { ...round, endsAt: Date.now() + RESULT_HOLD_MS } });
   }
 
   async _send(name, payload, timeoutMs = ACK_TIMEOUT_MS) {
