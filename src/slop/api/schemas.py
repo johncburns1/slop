@@ -102,6 +102,20 @@ class TeamCreatedReply(Reply):
     team_id: str
 
 
+class PersonalityOption(Reply):
+    """A personality as players see it. Its system prompt stays on the server."""
+
+    id: str
+    name: str
+    description: str
+
+
+class PersonalitiesReply(Reply):
+    """Ack of `list_personalities`: the built-in personalities, in display order."""
+
+    personalities: list[PersonalityOption]
+
+
 class ViewModel(BaseModel):
     """Part of a `PlayerViewReply`, read from the application's view of the same name."""
 

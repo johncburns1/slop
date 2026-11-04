@@ -15,6 +15,7 @@ from slop.api.app import EXPIRY_TASK
 from slop.api.rate_limit import RateLimit
 from slop.domain.events import GameEvent
 from slop.domain.game import GameStatus
+from slop.domain.personalities import PERSONALITIES
 from tests.socketio_clients import Listener, serving
 
 
@@ -285,6 +286,19 @@ async def test_players_reconnect_mid_round_and_see_only_what_they_may() -> None:
         assert "ScriptGenerated" in await t.types("dave")
         for name in t.players:
             assert await t.errors(name) == []
+
+
+async def test_anyone_connected_can_list_the_personalities_without_their_system_prompts() -> None:
+    async with table() as t:
+        await t.connect("alice")
+
+        reply = await t.send("alice", "list_personalities")
+
+        assert reply["personalities"] == [
+            {"id": p.id, "name": p.name, "description": p.description}
+            for p in PERSONALITIES.values()
+        ]
+        assert await t.errors("alice") == []
 
 
 async def test_rejoining_an_unknown_room_or_player_is_an_error_to_the_sender() -> None:
