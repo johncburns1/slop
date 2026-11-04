@@ -12,11 +12,14 @@ import * as home from "./screens/home.js";
 import * as lobby from "./screens/lobby.js";
 import * as personality from "./screens/personality.js";
 import * as playing from "./screens/playing.js";
+import * as result from "./screens/result.js";
 import * as waiting from "./screens/waiting.js";
 
 function screenFor(state) {
   if (state.restoring) return connecting;
   if (!state.view) return home;
+  // Held over whatever comes next, which by now has already started.
+  if (state.result) return result;
   switch (state.view.status) {
     case "lobby":
       return lobby;

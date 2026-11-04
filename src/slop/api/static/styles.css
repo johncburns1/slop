@@ -407,6 +407,10 @@ button:disabled {
   opacity: 0;
 }
 
+.option-label {
+  overflow-wrap: anywhere;
+}
+
 .option-label::before {
   content: "( ) ";
   content: "( ) " / "";
