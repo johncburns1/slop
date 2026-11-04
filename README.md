@@ -4,7 +4,7 @@
 
 A party game for groups in the same room. Your team writes a six-word prompt, an AI turns it into a ridiculous script, and you perform it while everyone else races to guess what you typed. Everyone plays from their phone.
 
-**Status:** the game server is playable end to end over Socket.IO, with a local AI stand-in in place of a real LLM. The frontend and a real LLM provider aren't built yet.
+**Status:** playable end to end on phones. `uv run slop serve` serves the mobile web app at `/`, with a local AI stand-in by default; `--llm claude` uses Claude (needs `ANTHROPIC_API_KEY`).
 
 ## Docs
 
