@@ -77,6 +77,21 @@ const reducers = {
   PersonalitySelectionStarted(view) {
     view.status = "personality_selection";
   },
+  GameCompleted(view, e) {
+    view.status = "finished";
+    view.current_round = null;
+    for (const team of view.teams) team.score = e.final_scores[team.id] ?? team.score;
+  },
+  AwardsGiven(view, e) {
+    view.awards = e.awards;
+  },
+  GameRestarted(view) {
+    view.status = "personality_selection";
+    view.current_round = null;
+    view.my_pick = null;
+    view.awards = [];
+    for (const team of view.teams) Object.assign(team, { score: 0, has_picked: false, personality_id: null });
+  },
 };
 
 class Game {
@@ -131,6 +146,14 @@ class Game {
     }
   }
 
+  /**
+   * Leave a game that has started. The server keeps its players from then on
+   * and rejects `leave_game`, so this only forgets the game on this phone.
+   */
+  exit() {
+    this._forget();
+  }
+
   createTeam(teamName, color) {
     return this._send("create_team", { team_name: teamName, color });
   }
@@ -145,6 +168,10 @@ class Game {
 
   startPersonalitySelection() {
     return this._send("start_personality_selection", {});
+  }
+
+  playAgain() {
+    return this._send("play_again", {});
   }
 
   async _onConnect() {
