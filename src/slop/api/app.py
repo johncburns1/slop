@@ -5,8 +5,10 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from datetime import timedelta
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from slop import __version__
 from slop.adapters.clock import SystemClock
@@ -27,6 +29,8 @@ from slop.ports.moderation import ModerationPort
 from slop.ports.storage import StoragePort
 
 SOCKETIO_PATH = "/socket.io"
+# The web client: plain HTML, CSS, and JavaScript modules, served as they are.
+STATIC_DIR = Path(__file__).parent / "static"
 EXPIRY_TASK = "slop.expire_games"
 DEFAULT_EXPIRE_EVERY = timedelta(minutes=1)
 
@@ -49,7 +53,8 @@ def create_app(
     expiry: ExpiryPolicy | None = None,
     expire_every: timedelta = DEFAULT_EXPIRE_EVERY,
 ) -> FastAPI:
-    """Build the ASGI app, with the Socket.IO endpoint mounted at `/socket.io`.
+    """Build the ASGI app, with the Socket.IO endpoint mounted at `/socket.io`
+    and the web client served from ``STATIC_DIR`` at `/`.
 
     Client messages there play the game (see `slop.api.messages`). Games are
     kept in ``storage`` (in memory if None) and scripts come from ``llm`` (the
@@ -79,6 +84,8 @@ def create_app(
     )
     app.add_api_route("/health", health, methods=["GET"], response_model=HealthResponse)
     app.mount(SOCKETIO_PATH, realtime.asgi_app())
+    # Last, so `/health` and `/socket.io` match before the catch-all static files.
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="web")
     return app
 
 

@@ -1,0 +1,584 @@
+/* A terminal in your pocket: monospace, ASCII boxes, [ BRACKET ] buttons.
+   Mobile first, laid out for a ~390px-wide phone held at arm's length.
+   Dark is a green-phosphor screen; light is a dot-matrix printout. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f1e6;
+  --fg: #1d1f1a;
+  --muted: #6b6a5e;
+  --line: #b9b4a2;
+  --accent: #0a7d2c;
+  --accent-2: #d6247f;
+  --error: #c0261b;
+  --glow: none;
+  --tap: 56px;
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono",
+    monospace;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0e0b;
+    --fg: #c8f7c5;
+    --muted: #6f8f6c;
+    --line: #2f4a2e;
+    --accent: #39ff6a;
+    --accent-2: #ff4fd8;
+    --error: #ff6b5b;
+    --glow: 0 0 8px rgb(57 255 106 / 0.35);
+  }
+
+  /* Faint scanlines, like an old CRT. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: repeating-linear-gradient(transparent 0 2px, rgb(0 0 0 / 0.18) 2px 3px);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom));
+}
+
+h1,
+h2,
+h3,
+pre {
+  margin: 0;
+  font: inherit;
+}
+
+h2 {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+h3 {
+  color: var(--muted);
+}
+
+h3::before {
+  content: "# ";
+  content: "# " / "";
+}
+
+[hidden] {
+  display: none !important;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.screen.center {
+  min-height: 70vh;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+/* A box with its title sitting on the top border: ┌─[ TITLE ]──┐ */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 24px 16px 16px;
+  border: 2px dashed var(--line);
+}
+
+.card > h2 {
+  position: absolute;
+  top: -0.8em;
+  left: 12px;
+  padding: 0 6px;
+  background: var(--bg);
+}
+
+.card > h2::before {
+  content: "[ ";
+  content: "[ " / "";
+  color: var(--muted);
+}
+
+.card > h2::after {
+  content: " ]";
+  content: " ]" / "";
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+label {
+  font-weight: 700;
+}
+
+.prompt::before {
+  content: "$ ";
+  content: "$ " / "";
+  color: var(--accent);
+}
+
+.prompt::after {
+  content: ":";
+  content: ":" / "";
+}
+
+input:not([type]) {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 1.1rem;
+  color: var(--fg);
+  caret-color: var(--accent);
+  background: transparent;
+  border: 2px solid var(--line);
+  border-radius: 0;
+}
+
+input:not([type]):focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+button:focus-visible,
+.option:has(input:focus-visible),
+.swatch:has(input:focus-visible) {
+  outline: 3px solid var(--accent-2);
+  outline-offset: 3px;
+}
+
+.code-input {
+  text-align: center;
+  font-size: 2rem !important;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+}
+
+/* Buttons read as [ LIKE THIS ], with a hard shadow that presses in. */
+button {
+  min-height: var(--tap);
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 2px solid var(--fg);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--fg);
+  cursor: pointer;
+}
+
+button::before {
+  content: "[ ";
+  content: "[ " / "";
+}
+
+button::after {
+  content: " ]";
+  content: " ]" / "";
+}
+
+button:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  box-shadow: 4px 4px 0 var(--fg);
+}
+
+.secondary {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.small {
+  min-height: 44px;
+  padding: 0 10px;
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: 3px 3px 0 var(--line);
+  text-transform: lowercase;
+}
+
+.small::before {
+  content: "[";
+  content: "[" / "";
+}
+
+.small::after {
+  content: "]";
+  content: "]" / "";
+}
+
+.link {
+  min-height: 44px;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.link::before {
+  content: "[";
+  content: "[" / "";
+}
+
+.link::after {
+  content: "]";
+  content: "]" / "";
+}
+
+.error {
+  margin: 0;
+  padding: 8px 12px;
+  border: 2px dashed var(--error);
+  color: var(--error);
+  font-weight: 700;
+}
+
+.error::before {
+  content: "ERR! ";
+  content: "ERR! " / "";
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* A blinking block cursor after the text. */
+.cursor::after {
+  content: "█";
+  content: "█" / "";
+  margin-left: 0.25em;
+  color: var(--accent);
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor::after {
+    animation: none;
+  }
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--muted);
+}
+
+.eyebrow::before {
+  content: "// ";
+  content: "// " / "";
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.offline {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 10px;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--error);
+  color: var(--bg);
+}
+
+/* Home */
+
+.brand {
+  padding: 8px 0 0;
+}
+
+.logo {
+  font-size: 1.15rem;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+.drips {
+  margin-left: 0.5ch;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--accent-2);
+}
+
+.tagline {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+
+.tagline::before {
+  content: "> ";
+  content: "> " / "";
+  color: var(--accent-2);
+}
+
+.or {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 2px dashed var(--line);
+  cursor: pointer;
+}
+
+.option input {
+  position: absolute;
+  opacity: 0;
+}
+
+.option-label::before {
+  content: "( ) ";
+  content: "( ) " / "";
+  color: var(--muted);
+}
+
+.option:has(input:checked) {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.option:has(input:checked) .option-label::before {
+  content: "(*) ";
+  content: "(*) " / "";
+  color: var(--accent);
+}
+
+.option-hint {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Lobby */
+
+.lobby-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: -12px;
+}
+
+.room-code {
+  font-size: min(11vw, 3rem);
+  font-weight: 700;
+  line-height: 1.05;
+  overflow: auto hidden;
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+.section-title::before {
+  content: "## ";
+  content: "## " / "";
+  color: var(--muted);
+}
+
+.teams,
+.players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.teams {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.team {
+  padding: 8px 12px 12px;
+  border: 2px dashed var(--line);
+  border-left: 8px solid var(--team);
+}
+
+.team.mine {
+  border-style: solid;
+  border-color: var(--team);
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.team-dot {
+  color: var(--team);
+}
+
+.team-name {
+  flex: 1;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.team-count {
+  color: var(--muted);
+}
+
+.players {
+  margin-top: 4px;
+}
+
+.player.me {
+  font-weight: 700;
+}
+
+.branch,
+.tag {
+  color: var(--muted);
+}
+
+.player.me .tag {
+  color: var(--accent);
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 2px dashed var(--line);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.swatch {
+  display: grid;
+  place-items: center;
+  height: 48px;
+  background: var(--swatch);
+  border: 2px solid var(--bg);
+  outline: 2px solid var(--line);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: #fff;
+}
+
+.swatch input {
+  position: absolute;
+  opacity: 0;
+}
+
+.swatch:has(input:checked) {
+  outline: 3px solid var(--fg);
+}
+
+.swatch:has(input:checked)::after {
+  content: "*";
+  content: "*" / "";
+}
+
+.swatch.taken {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.swatch.taken::after {
+  content: "x";
+  content: "x" / "";
+}
+
+.host {
+  border-color: var(--accent);
+}
+
+.host > h2 {
+  color: var(--accent);
+}
+
+.my-team {
+  margin: 0;
+  font-weight: 700;
+}
+
+.my-team .team-dot {
+  color: var(--team);
+}
