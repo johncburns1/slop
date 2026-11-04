@@ -1,14 +1,18 @@
 """Use cases: other teams guess the prompt, then the acting team judges and the round is scored.
 
 Once the acting team has its script, any player on another team can submit
-any number of guesses. A player on the acting team then picks the winning
-guess, or says nobody got it, which closes guessing. Finally they guess which
+any number of guesses until the round's deadline, or until the acting team
+ends guessing early. ``GuessTimers`` closes guessing at the deadline, and a
+late guess or a rejoin closes it too in case that timer was lost. A player on
+the acting team then picks the winning guess, or says nobody got it (which
+they may also do before guessing has ended). Finally they guess which
 personality wrote their script. That guess is revealed, the round is scored
 (see ``round_score_changes``), and ``finish_or_continue`` decides what comes
 next: the next team's round, a tiebreaker, or the end of the game.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from slop.application.engine import GameDeps, Private, commit, load_game
 from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
@@ -17,6 +21,7 @@ from slop.domain.errors import GameRuleError
 from slop.domain.events import (
     GameEvent,
     GuessAccepted,
+    GuessingEnded,
     GuessSubmitted,
     NoGuessAccepted,
     PersonalityGuessSubmitted,
@@ -50,6 +55,21 @@ class SubmitGuess:
 
 
 @dataclass(frozen=True)
+class EndGuessing:
+    """Command for a player on the acting team to stop taking guesses before time is up."""
+
+    game_id: str
+    player_id: str
+
+
+@dataclass(frozen=True)
+class CloseGuessingIfDue:
+    """Command from the server itself to end guessing if the round's time has run out."""
+
+    game_id: str
+
+
+@dataclass(frozen=True)
 class PickWinningGuess:
     """Command for a player on the acting team to accept a guess.
 
@@ -76,11 +96,12 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
 
     Raises:
         GameNotFoundError: If there is no such game
-        GameRuleError: If no round is open for guessing, the player isn't in
-            the game or is on the acting team, or the guess is blank
+        GameRuleError: If no round is open for guessing (a round past its
+            deadline is closed first), the player isn't in the game or is on
+            the acting team, or the guess is blank
         ContentBlockedError: If moderation blocks the guess
     """
-    game = await load_game(deps, command.game_id)
+    game = await _game_open_for_guessing(deps, command.game_id)
     current = _round_open_for_guessing(game)
     player = _player(game, command.player_id)
     if player.team_id is None:
@@ -91,6 +112,9 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
     if not guess:
         raise GameRuleError("A guess can't be blank")
     await check_player_text(deps, game, guess, "That guess")
+    # Moderation can take a while, and guessing may have closed in the meantime.
+    game = await _game_open_for_guessing(deps, command.game_id)
+    current = _round_open_for_guessing(game)
 
     return await commit(
         deps,
@@ -106,18 +130,59 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
     )
 
 
+async def end_guessing(deps: GameDeps, command: EndGuessing) -> Game:
+    """Stop taking guesses and tell the room, so the acting team can judge the ones it got.
+
+    Raises:
+        GameNotFoundError: If there is no such game
+        GameRuleError: If no round is open for guessing, or the player isn't
+            on the acting team
+    """
+    game = await load_game(deps, command.game_id)
+    current = _round_open_for_guessing(game)
+    _check_player_is_acting(game, current, command.player_id)
+    return await commit(
+        deps, game, [GuessingEnded(game_id=game.id, round_number=current.round_number)]
+    )
+
+
+async def close_guessing_if_due(deps: GameDeps, command: CloseGuessingIfDue) -> Game:
+    """End guessing and tell the room if the round's time is up. Otherwise change nothing.
+
+    Raises:
+        GameNotFoundError: If there is no such game
+    """
+    game = await load_game(deps, command.game_id)
+    events = overdue_guessing_events(game, deps.clock.now())
+    return await commit(deps, game, events) if events else game
+
+
+def overdue_guessing_events(game: Game, now: datetime) -> list[GameEvent]:
+    """Return the events that close the round's guessing, if it should have closed by ``now``."""
+    current = round_open_for_guessing(game)
+    if current is None or not current.guess_time_is_up(now):
+        return []
+    return [GuessingEnded(game_id=game.id, round_number=current.round_number)]
+
+
+def round_open_for_guessing(game: Game) -> Round | None:
+    """Return the round in progress if it is taking guesses, else None."""
+    current = _find_current_round(game)
+    return current if current is not None and current.guessing_open else None
+
+
 async def pick_winning_guess(deps: GameDeps, command: PickWinningGuess) -> Game:
-    """Accept the guess (or none), close guessing, and tell the room.
+    """Accept the guess (or none), which closes guessing if it was still open, and tell the room.
 
     Points are awarded when the round completes, after the personality guess.
 
     Raises:
         GameNotFoundError: If there is no such game
-        GameRuleError: If no round is open for guessing, the player isn't on
-            the acting team, or there is no guess at ``guess_index``
+        GameRuleError: If no round is waiting to be judged, the player isn't
+            on the acting team, or there is no guess at ``guess_index``
     """
     game = await load_game(deps, command.game_id)
-    current = _round_open_for_guessing(game)
+    current = _round_to_judge(game)
     _check_player_is_acting(game, current, command.player_id)
 
     event: GameEvent
@@ -194,21 +259,45 @@ def round_score_changes(
     return changes
 
 
-def _current_round(game: Game) -> Round:
+def _find_current_round(game: Game) -> Round | None:
     if game.status == GameStatus.PLAYING:
         for candidate in game.rounds:
             if candidate.round_number == game.current_round:
                 return candidate
-    raise GameRuleError("No round is in progress")
+    return None
 
 
-def _round_open_for_guessing(game: Game) -> Round:
+def _current_round(game: Game) -> Round:
+    current = _find_current_round(game)
+    if current is None:
+        raise GameRuleError("No round is in progress")
+    return current
+
+
+def _round_to_judge(game: Game) -> Round:
     current = _current_round(game)
     if current.script is None:
         raise GameRuleError("The acting team doesn't have its script yet")
     if current.guessing_closed:
         raise GameRuleError("Guessing is over for this round")
     return current
+
+
+def _round_open_for_guessing(game: Game) -> Round:
+    current = _round_to_judge(game)
+    if current.guessing_ended:
+        raise GameRuleError("Guessing is over for this round")
+    return current
+
+
+async def _game_open_for_guessing(deps: GameDeps, game_id: str) -> Game:
+    """Load the game, closing guessing first if its time is up; raise unless it is open."""
+    game = await load_game(deps, game_id)
+    _round_open_for_guessing(game)
+    if events := overdue_guessing_events(game, deps.clock.now()):
+        await commit(deps, game, events)
+        raise GameRuleError("Guessing is over for this round")
+    return game
 
 
 def _player(game: Game, player_id: str) -> Player:

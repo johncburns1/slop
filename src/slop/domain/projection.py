@@ -19,6 +19,7 @@ from slop.domain.events import (
     GameEvent,
     GameRestarted,
     GuessAccepted,
+    GuessingEnded,
     GuessSubmitted,
     NoGuessAccepted,
     PersonalityAssigned,
@@ -161,9 +162,11 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
                 word_count=event.word_count,
                 generated_at=event.timestamp,
             )
-        case ScriptGenerationFailed() | ScriptReady():
-            # Notifications only: the round's state is unchanged.
+        case ScriptGenerationFailed():
+            # Notification only: the round's state is unchanged.
             _round(game, event.round_number)
+        case ScriptReady():
+            _round(game, event.round_number).guess_deadline = event.guess_deadline
         case RoleAssigned():
             current = _round(game, event.round_number)
             role_names = [role.name for role in current.script.roles] if current.script else []
@@ -178,6 +181,8 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
                     team_id=event.team_id, guess=event.guess, timestamp=event.timestamp.timestamp()
                 )
             )
+        case GuessingEnded():
+            _round(game, event.round_number).guessing_ended = True
         case GuessAccepted():
             current = _round(game, event.round_number)
             current.set_prompt_winner(event.team_id)

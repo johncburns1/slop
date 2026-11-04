@@ -14,6 +14,7 @@ from slop.domain import (
     GameEvent,
     GameRestarted,
     GuessAccepted,
+    GuessingEnded,
     GuessSubmitted,
     NoGuessAccepted,
     PersonalityAssigned,
@@ -145,6 +146,7 @@ def round_zero_scored_events() -> list[GameEvent]:
         GuessSubmitted(
             game_id=GAME_ID, timestamp=at(21), round_number=0, team_id="team-2", guess="Moon heist"
         ),
+        GuessingEnded(game_id=GAME_ID, timestamp=at(22), round_number=0),
         GuessAccepted(game_id=GAME_ID, round_number=0, team_id="team-2"),
         PersonalityGuessSubmitted(game_id=GAME_ID, round_number=0, personality_guess="noir"),
         PersonalityRevealed(
@@ -190,7 +192,9 @@ def full_game_events() -> list[GameEvent]:
         *round_zero_events(),
         PersonalityPicked(game_id=GAME_ID, picked_by_team_id="team-1"),
         ScriptGenerationFailed(game_id=GAME_ID, round_number=0, team_id="team-1"),
-        ScriptReady(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
+        ScriptReady(
+            game_id=GAME_ID, round_number=0, acting_team_id="team-1", guess_deadline=at(72)
+        ),
         *round_zero_scored_events(),
         *round_one_unguessed_events(),
         TiebreakerStarted(game_id=GAME_ID, cycle=1, team_ids=["team-1", "team-2"], first_round=2),

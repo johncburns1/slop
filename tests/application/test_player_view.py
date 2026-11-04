@@ -6,6 +6,7 @@ from slop.application.player_view import PlayerView, player_view
 from slop.domain import Award, GameStatus
 from slop.domain.errors import GameRuleError
 from slop.domain.game import Tiebreaker
+from tests.application.conftest import NOW
 from tests.builders import (
     DEFAULT_PROMPT,
     in_guessing_phase,
@@ -29,7 +30,7 @@ def test_everyone_sees_the_lobby_teams_and_scores():
     game = lobby_with_two_teams()
     game.get_team("team-2").add_score(2)
 
-    view = player_view(game, "player-3")
+    view = player_view(game, "player-3", NOW)
 
     assert (view.game_id, view.room_code, view.status) == ("game-1", "ABCD", GameStatus.LOBBY)
     assert (view.player_id, view.team_id) == ("player-3", "team-2")
@@ -52,8 +53,8 @@ def test_only_the_picking_team_sees_its_pick_and_everyone_sees_that_it_picked():
     game = selecting_personalities()
     game.get_team("team-2").assign_personality("noir", assigned_by="team-1")
 
-    picker = player_view(game, "player-1")
-    target = player_view(game, "player-3")
+    picker = player_view(game, "player-1", NOW)
+    target = player_view(game, "player-3", NOW)
 
     assert picker.my_pick is not None
     assert (picker.my_pick.team_id, picker.my_pick.personality_id) == ("team-2", "noir")
@@ -67,7 +68,7 @@ def test_only_the_picking_team_sees_its_pick_and_everyone_sees_that_it_picked():
 def test_the_acting_team_sees_the_prompt_script_and_roles_mid_round():
     game = in_guessing_phase()
 
-    view = player_view(game, "player-2")
+    view = player_view(game, "player-2", NOW)
 
     current = view.current_round
     assert current is not None
@@ -87,7 +88,7 @@ def test_the_acting_team_sees_the_prompt_script_and_roles_mid_round():
 
 
 def test_the_acting_team_never_sees_its_own_personality_before_the_reveal():
-    view = player_view(in_guessing_phase(), "player-1")
+    view = player_view(in_guessing_phase(), "player-1", NOW)
 
     # Only the pick team 1 made for team 2, never the personality it is performing with.
     assert personalities_in(view) == {"melodrama"}
@@ -95,7 +96,7 @@ def test_the_acting_team_never_sees_its_own_personality_before_the_reveal():
 
 
 def test_guessing_teams_see_the_phase_and_guesses_but_no_prompt_script_or_secret():
-    view = player_view(in_guessing_phase(), "player-3")
+    view = player_view(in_guessing_phase(), "player-3", NOW)
 
     current = view.current_round
     assert current is not None
@@ -109,15 +110,18 @@ def test_guessing_teams_see_the_phase_and_guesses_but_no_prompt_script_or_secret
 
 def test_the_round_phase_follows_the_round():
     game = waiting_for_prompt()
-    phases = [player_view(game, "player-3").current_round]
+    phases = [player_view(game, "player-3", NOW).current_round]
     game = in_guessing_phase()
-    phases.append(player_view(game, "player-3").current_round)
+    phases.append(player_view(game, "player-3", NOW).current_round)
+    game.rounds[0].guessing_ended = True
+    phases.append(player_view(game, "player-3", NOW).current_round)
     game.rounds[0].close_guessing()
-    phases.append(player_view(game, "player-3").current_round)
+    phases.append(player_view(game, "player-3", NOW).current_round)
 
     assert [p.phase if p else None for p in phases] == [
         "waiting_for_prompt",
         "guessing",
+        "judging",
         "guessing_personality",
     ]
 
@@ -130,20 +134,20 @@ def test_a_personality_is_shown_to_everyone_once_it_has_been_revealed():
     current.check_personality_guess()
 
     for player_id in ("player-1", "player-3"):
-        view = player_view(game, player_id)
+        view = player_view(game, player_id, NOW)
         assert [t.personality_id for t in view.teams] == ["noir", None]
-    assert personalities_in(player_view(game, "player-3")) == {"noir"}
+    assert personalities_in(player_view(game, "player-3", NOW)) == {"noir"}
 
 
 def test_no_round_is_shown_between_the_last_round_and_what_comes_next():
-    view = player_view(tied_after_last_round(rounds_per_team=1), "player-1")
+    view = player_view(tied_after_last_round(rounds_per_team=1), "player-1", NOW)
 
     assert view.current_round is None
     assert [t.score for t in view.teams] == [2, 2]
 
 
 def test_there_is_no_tiebreaker_in_the_view_until_one_starts():
-    assert player_view(waiting_for_prompt(), "player-1").tiebreaker is None
+    assert player_view(waiting_for_prompt(), "player-1", NOW).tiebreaker is None
 
 
 def test_everyone_sees_the_tiebreaker_in_play_so_they_can_tell_whose_turn_is_next():
@@ -151,7 +155,7 @@ def test_everyone_sees_the_tiebreaker_in_play_so_they_can_tell_whose_turn_is_nex
     game.tiebreaker = Tiebreaker(cycle=1, team_ids=["team-2", "team-1"], first_round=2)
 
     for player_id in ("player-1", "player-3"):
-        tiebreaker = player_view(game, player_id).tiebreaker
+        tiebreaker = player_view(game, player_id, NOW).tiebreaker
         assert tiebreaker is not None
         assert (tiebreaker.cycle, tiebreaker.team_ids, tiebreaker.first_round) == (
             1,
@@ -163,11 +167,11 @@ def test_everyone_sees_the_tiebreaker_in_play_so_they_can_tell_whose_turn_is_nex
 def test_everyone_sees_the_awards_once_the_game_has_finished():
     game = scored_after_last_round(scores=(4, 2))
     game.finish()
-    assert player_view(game, "player-1").awards == ()
+    assert player_view(game, "player-1", NOW).awards == ()
     game.awards = [Award(title="Champions", recipient="Red Team", reason="For winning.")]
 
     for player_id in ("player-1", "player-3"):
-        view = player_view(game, player_id)
+        view = player_view(game, player_id, NOW)
         assert view.status == GameStatus.FINISHED
         assert [(a.title, a.recipient, a.reason) for a in view.awards] == [
             ("Champions", "Red Team", "For winning.")
@@ -176,4 +180,4 @@ def test_everyone_sees_the_awards_once_the_game_has_finished():
 
 def test_a_player_not_in_the_game_has_no_view():
     with pytest.raises(GameRuleError, match="player-9"):
-        player_view(lobby_with_two_teams(), "player-9")
+        player_view(lobby_with_two_teams(), "player-9", NOW)

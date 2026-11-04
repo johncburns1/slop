@@ -13,7 +13,7 @@ from slop.adapters.websocket import SocketIORealtime
 from slop.api import create_app
 from slop.api.app import EXPIRY_TASK
 from slop.api.rate_limit import RateLimit
-from slop.domain.events import GameEvent
+from slop.domain.events import GameEvent, GuessingEnded, ScriptReady
 from slop.domain.game import GameStatus
 from slop.domain.personalities import PERSONALITIES
 from tests.socketio_clients import Listener, serving
@@ -418,3 +418,43 @@ async def test_the_expiry_sweep_stops_with_the_server() -> None:
         assert [t for t in asyncio.all_tasks() if t.get_name() == EXPIRY_TASK]
 
     assert not [t for t in asyncio.all_tasks() if t.get_name() == EXPIRY_TASK]
+
+
+async def test_time_running_out_moves_everyone_to_judging_over_the_wire() -> None:
+    """The server's own timer closes guessing, and a late guess gets a friendly error."""
+    async with table() as t:
+        await two_teams_with_personalities(t, guess_timer_seconds=1)
+        await t.send("alice", "submit_prompt", {"prompt": "a haunted vending machine"})
+        carol_events = await t.received("carol")
+        ready = next(e for e in carol_events if isinstance(e, ScriptReady))
+        assert ready.guess_deadline is not None
+        assert await t.send("carol", "submit_guess", {"guess": "cursed snacks"}) is None
+
+        for _ in range(300):
+            if any(isinstance(e, GuessingEnded) for e in await t.received("carol")):
+                break
+            await asyncio.sleep(0.01)
+
+        assert any(isinstance(e, GuessingEnded) for e in await t.received("alice"))
+        assert await t.send("dave", "submit_guess", {"guess": "too late"}) == {
+            "code": "rule_broken",
+            "message": "Guessing is over for this round",
+            "request": "submit_guess",
+        }
+        assert await t.send("alice", "pick_winning_guess", {"guess_index": 0}) is None
+
+
+async def test_the_acting_team_ends_guessing_early_over_the_wire() -> None:
+    async with table() as t:
+        await two_teams_with_personalities(t)
+        await t.send("alice", "submit_prompt", {"prompt": "a haunted vending machine"})
+
+        refused = await t.send("carol", "end_guessing")
+        assert refused is not None and refused["code"] == "rule_broken"
+
+        assert await t.send("bob", "end_guessing") is None
+
+        heard = await t.received("carol")
+        assert any(isinstance(e, GuessingEnded) for e in heard)
+        game = await t.storage.get_snapshot(heard[-1].game_id)
+        assert game is not None and game.rounds[0].guessing_ended

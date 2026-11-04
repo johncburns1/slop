@@ -1,14 +1,17 @@
 """Tests for a player reconnecting to a game they are already in."""
 
+from datetime import timedelta
+
 import pytest
 
+from slop.adapters.clock import FixedClock
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application.engine import GameDeps, load_game
 from slop.application.guess_and_score import SubmitGuess, submit_guess
 from slop.application.rejoin_game import RejoinGame, rejoin_game
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
-from slop.domain import Game, PlayerJoined, PlayerReconnected, RoleAssigned
+from slop.domain import Game, GuessingEnded, PlayerJoined, PlayerReconnected, RoleAssigned
 from slop.domain.errors import GameNotFoundError, GameRuleError
 from tests.builders import waiting_for_prompt
 
@@ -109,3 +112,38 @@ async def test_an_unknown_player_is_rejected_without_emitting_anything(
 
     assert await storage.get_events(game.id) == before
     assert realtime.rooms_of("socket-x") == frozenset()
+
+
+async def test_rejoining_after_the_deadline_lands_on_judging(
+    deps: GameDeps, realtime: RecordingRealtime, storage: InMemoryStorage, clock: FixedClock
+):
+    game = await mid_round(deps, realtime)
+    clock.advance(timedelta(seconds=60))
+
+    rejoined = await rejoin_game(deps, RejoinGame("ABCD", "player-3", "socket-3b"))
+
+    assert rejoined.view.current_round is not None
+    assert rejoined.view.current_round.phase == "judging"
+    assert [g.guess for g in rejoined.view.current_round.guesses] == ["a cursed snack machine"]
+    assert rejoined.game.rounds[0].guessing_ended
+    assert await load_game(deps, game.id) == rejoined.game
+    events = await storage.get_events(game.id)
+    assert [type(e) for e in events[-2:]] == [GuessingEnded, PlayerReconnected]
+    assert "socket-4" in realtime.who_received(GuessingEnded)
+
+
+async def test_rejoining_mid_countdown_shows_the_deadline_and_the_servers_time(
+    deps: GameDeps, realtime: RecordingRealtime, clock: FixedClock
+):
+    game = await mid_round(deps, realtime)
+    deadline = game.rounds[0].guess_deadline
+    clock.advance(timedelta(seconds=20))
+
+    rejoined = await rejoin_game(deps, RejoinGame("ABCD", "player-3", "socket-3b"))
+
+    assert rejoined.view.current_round is not None
+    assert rejoined.view.current_round.phase == "guessing"
+    assert rejoined.view.current_round.guess_deadline == deadline
+    assert rejoined.view.server_time == clock.now()
+    assert deadline is not None
+    assert deadline - rejoined.view.server_time == timedelta(seconds=40)

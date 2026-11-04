@@ -55,11 +55,22 @@ class Round:
     role_assignments: dict[str, int] = field(default_factory=dict)  # player_id -> role index
     prompt_guesses: list[Guess] = field(default_factory=list)
     prompt_winner_team_id: str | None = None
+    guess_deadline: datetime | None = None  # None only in rounds from before the guess timer
+    guessing_ended: bool = False  # no more guesses: time ran out or the acting team ended it
     guessing_closed: bool = False  # the acting team has picked a winner, or said nobody
     personality_guess: str | None = None
     personality_correct: bool = False
     round_score: dict[str, int] = field(default_factory=dict)  # team_id -> points
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def guessing_open(self) -> bool:
+        """Whether the round has a script and is still recording guesses."""
+        return self.script is not None and not self.guessing_ended and not self.guessing_closed
+
+    def guess_time_is_up(self, now: datetime) -> bool:
+        """Whether ``now`` is at or past the guess deadline."""
+        return self.guess_deadline is not None and now >= self.guess_deadline
 
     def add_guess(self, guess: Guess) -> None:
         """Add a prompt guess from a team."""

@@ -4,6 +4,7 @@ These are the API's wire format. They stay in the API layer and are never
 passed into the domain.
 """
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -179,11 +180,12 @@ class RoundView(ViewModel):
 
     round_number: int
     acting_team_id: str
-    phase: Literal["waiting_for_prompt", "guessing", "guessing_personality"]
+    phase: Literal["waiting_for_prompt", "guessing", "judging", "guessing_personality"]
     guesses: list[GuessView]
     prompt_winner_team_id: str | None
     prompt: str | None
     script: ScriptView | None
+    guess_deadline: datetime | None
 
 
 class TiebreakerView(ViewModel):
@@ -215,6 +217,7 @@ class PlayerViewReply(Reply):
     tiebreaker: TiebreakerView | None
     my_pick: PersonalityPick | None
     awards: list[AwardView]
+    server_time: datetime
 
 
 ErrorCode = Literal[

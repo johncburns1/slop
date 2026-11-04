@@ -2,19 +2,25 @@
 
 import json
 from dataclasses import replace
+from datetime import timedelta
 from functools import reduce
 
 import pytest
 
+from slop.adapters.clock import FixedClock
 from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
 from slop.application import guess_and_score
 from slop.application.engine import GameDeps, load_game
 from slop.application.guess_and_score import (
+    CloseGuessingIfDue,
+    EndGuessing,
     GuessPersonality,
     PickWinningGuess,
     SubmitGuess,
+    close_guessing_if_due,
+    end_guessing,
     guess_personality,
     pick_winning_guess,
     submit_guess,
@@ -27,6 +33,7 @@ from slop.domain import (
     GameCompleted,
     GameStatus,
     GuessAccepted,
+    GuessingEnded,
     GuessSubmitted,
     NoGuessAccepted,
     PersonalityGuessSubmitted,
@@ -35,9 +42,11 @@ from slop.domain import (
     RoundCompleted,
     RoundStarted,
     ScoresUpdated,
+    ScriptReady,
 )
 from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 from slop.domain.projection import apply_event
+from slop.ports.moderation import ModerationResult
 from tests.builders import (
     in_guessing_phase,
     in_last_round_guessing_phase,
@@ -516,3 +525,151 @@ async def test_a_whole_round_replays_to_the_saved_snapshot(
     game = await play_out(deps, game, winning_guess=1, personality="noir")
 
     assert reduce(apply_event, await storage.get_events(game.id), before) == game
+
+
+# The guess timer. `waiting_for_prompt` uses the default 60 second timer.
+GUESS_TIMER = timedelta(seconds=60)
+
+
+async def guessing_open(deps: GameDeps, realtime: RecordingRealtime) -> Game:
+    """Team 1 has its script, so guessing has just opened and the 60 seconds are running."""
+    game = await start(deps, realtime, waiting_for_prompt())
+    return await submit_prompt(deps, SubmitPrompt(game.id, "player-1", "a haunted vending machine"))
+
+
+async def test_guessing_opens_with_a_deadline_from_the_clock(
+    deps: GameDeps, realtime: RecordingRealtime, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+
+    assert game.rounds[0].guess_deadline == clock.now() + GUESS_TIMER
+    ready = [e for e in realtime.broadcasts_to(game.room_code) if isinstance(e, ScriptReady)]
+    assert [e.guess_deadline for e in ready] == [clock.now() + GUESS_TIMER]
+
+
+async def test_a_guess_is_accepted_until_just_before_the_deadline(
+    deps: GameDeps, realtime: RecordingRealtime, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    clock.advance(GUESS_TIMER - timedelta(milliseconds=1))
+
+    game = await submit_guess(deps, SubmitGuess(game.id, "player-3", "cursed snacks"))
+
+    assert [g.guess for g in game.rounds[0].prompt_guesses] == ["cursed snacks"]
+    assert game.rounds[0].guessing_open
+
+
+async def test_a_guess_at_the_deadline_is_rejected_and_moves_the_round_to_judging(
+    deps: GameDeps, realtime: RecordingRealtime, storage: InMemoryStorage, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    clock.advance(GUESS_TIMER)
+
+    with pytest.raises(GameRuleError, match="Guessing is over"):
+        await submit_guess(deps, SubmitGuess(game.id, "player-3", "too late"))
+
+    # Even though no timer fired: the guess itself notices the round is overdue.
+    game = await load_game(deps, game.id)
+    assert game.rounds[0].prompt_guesses == []
+    assert game.rounds[0].guessing_ended
+    assert isinstance((await storage.get_events(game.id))[-1], GuessingEnded)
+
+
+async def test_a_guess_stuck_in_moderation_past_the_deadline_is_rejected(
+    realtime: RecordingRealtime, storage: InMemoryStorage, clock: FixedClock, deps: GameDeps
+):
+    """A slow moderation call must not write a stale game over the closed round."""
+
+    class SlowModeration(StandInModerationAdapter):
+        async def check(self, text: str, tone: ContentTone) -> ModerationResult:
+            clock.advance(GUESS_TIMER)
+            return await super().check(text, tone)
+
+    game = await guessing_open(deps, realtime)
+    slow = replace(deps, moderation=SlowModeration())
+
+    with pytest.raises(GameRuleError, match="Guessing is over"):
+        await submit_guess(slow, SubmitGuess(game.id, "player-3", "too late"))
+
+    game = await load_game(deps, game.id)
+    assert game.rounds[0].prompt_guesses == []
+    assert game.rounds[0].guessing_ended
+
+
+async def test_the_acting_team_can_end_guessing_early(
+    deps: GameDeps, realtime: RecordingRealtime, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    game = await submit_guess(deps, SubmitGuess(game.id, "player-3", "cursed snacks"))
+
+    game = await end_guessing(deps, EndGuessing(game.id, "player-2"))
+
+    assert game.rounds[0].guessing_ended
+    assert not game.rounds[0].guessing_closed
+    with pytest.raises(GameRuleError, match="Guessing is over"):
+        await submit_guess(deps, SubmitGuess(game.id, "player-3", "another"))
+    # The acting team then judges what came in, and the round plays out as usual.
+    game = await play_out(deps, game, winning_guess=0, personality="noir")
+    assert game.get_team("team-2").score == 1
+
+
+async def test_only_the_acting_team_can_end_guessing(deps: GameDeps, realtime: RecordingRealtime):
+    game = await guessing_open(deps, realtime)
+
+    with pytest.raises(GameRuleError, match="not on the acting team"):
+        await end_guessing(deps, EndGuessing(game.id, "player-3"))
+
+    assert (await load_game(deps, game.id)).rounds[0].guessing_open
+
+
+@pytest.mark.parametrize("end_twice", [True, False])
+async def test_guessing_can_only_be_ended_while_it_is_open(
+    deps: GameDeps, realtime: RecordingRealtime, end_twice: bool
+):
+    if end_twice:
+        game = await guessing_open(deps, realtime)
+        await end_guessing(deps, EndGuessing(game.id, "player-1"))
+    else:  # no script yet
+        game = await start(deps, realtime, waiting_for_prompt())
+
+    with pytest.raises(GameRuleError):
+        await end_guessing(deps, EndGuessing(game.id, "player-1"))
+
+
+async def test_the_acting_team_can_say_nobody_got_it_after_time_runs_out(
+    deps: GameDeps, realtime: RecordingRealtime, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    clock.advance(GUESS_TIMER)
+    game = await close_guessing_if_due(deps, CloseGuessingIfDue(game.id))
+
+    game = await pick_winning_guess(deps, PickWinningGuess(game.id, "player-1", None))
+
+    assert game.rounds[0].guessing_closed
+
+
+async def test_closing_guessing_does_nothing_before_the_deadline(
+    deps: GameDeps, realtime: RecordingRealtime, storage: InMemoryStorage, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    logged = len(await storage.get_events(game.id))
+    clock.advance(GUESS_TIMER - timedelta(seconds=1))
+
+    game = await close_guessing_if_due(deps, CloseGuessingIfDue(game.id))
+
+    assert game.rounds[0].guessing_open
+    assert len(await storage.get_events(game.id)) == logged
+
+
+async def test_closing_guessing_tells_the_room_once(
+    deps: GameDeps, realtime: RecordingRealtime, storage: InMemoryStorage, clock: FixedClock
+):
+    game = await guessing_open(deps, realtime)
+    clock.advance(GUESS_TIMER)
+
+    await close_guessing_if_due(deps, CloseGuessingIfDue(game.id))
+    await close_guessing_if_due(deps, CloseGuessingIfDue(game.id))
+
+    ended = [e for e in await storage.get_events(game.id) if isinstance(e, GuessingEnded)]
+    assert len(ended) == 1
+    assert realtime.who_received(GuessingEnded) == ALL_SOCKETS

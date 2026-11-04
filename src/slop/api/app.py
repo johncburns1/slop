@@ -22,6 +22,7 @@ from slop.api.rate_limit import RateLimit, RateLimiter
 from slop.api.schemas import HealthResponse
 from slop.application.engine import GameDeps
 from slop.application.expire_games import expire_games
+from slop.application.guess_timers import GuessTimers
 from slop.domain.expiry import ExpiryPolicy
 from slop.ports.clock import Clock
 from slop.ports.llm import LLMPort
@@ -63,7 +64,7 @@ def create_app(
     Player and AI text is checked by ``moderation`` (the stand-in if None;
     pass a real provider's adapter here to use it).
     While the app runs, games past ``expiry`` (the defaults if None) are
-    deleted every ``expire_every``.
+    deleted every ``expire_every``, and guessing closes at each round's deadline.
     """
     realtime = realtime or SocketIORealtime()
     clock = clock or SystemClock()
@@ -75,12 +76,13 @@ def create_app(
         llm=llm or StandInLLMAdapter(),
         moderation=moderation or StandInModerationAdapter(),
     )
-    GameMessages(deps, realtime, RateLimiter(rate_limit or RateLimit(), clock)).register()
+    timers = GuessTimers(deps)
+    GameMessages(deps, realtime, RateLimiter(rate_limit or RateLimit(), clock), timers).register()
 
     app = FastAPI(
         title="Slop",
         version=__version__,
-        lifespan=_expiring_games(deps, expiry or ExpiryPolicy(), expire_every),
+        lifespan=_background_tasks(deps, timers, expiry or ExpiryPolicy(), expire_every),
     )
     app.add_api_route("/health", health, methods=["GET"], response_model=HealthResponse)
     app.mount(SOCKETIO_PATH, realtime.asgi_app())
@@ -89,10 +91,14 @@ def create_app(
     return app
 
 
-def _expiring_games(
-    deps: GameDeps, policy: ExpiryPolicy, every: timedelta
+def _background_tasks(
+    deps: GameDeps, timers: GuessTimers, policy: ExpiryPolicy, every: timedelta
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
-    """A lifespan that deletes expired games every ``every`` until the app shuts down."""
+    """A lifespan that runs guess timers, and deletes expired games every ``every``.
+
+    On startup it picks up the guess timers of games the last server left. All
+    of it stops when the app shuts down.
+    """
 
     async def sweep() -> None:
         while True:
@@ -104,10 +110,12 @@ def _expiring_games(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await timers.restore()
         sweeper = asyncio.create_task(sweep(), name=EXPIRY_TASK)
         try:
             yield
         finally:
+            await timers.stop()
             sweeper.cancel()
             with suppress(asyncio.CancelledError):
                 await sweeper

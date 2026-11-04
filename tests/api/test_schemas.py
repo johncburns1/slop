@@ -7,6 +7,7 @@ from slop.api.schemas import HealthResponse, PlayerViewReply
 from slop.application.player_view import player_view
 from slop.domain import Award
 from slop.domain.game import Tiebreaker
+from tests.application.conftest import NOW
 from tests.builders import scored_after_last_round, tied_after_last_round
 
 
@@ -25,7 +26,7 @@ def test_the_rejoin_reply_carries_the_awards_of_a_finished_game() -> None:
     game.finish()
     game.awards = [Award(title="Champions", recipient="Red Team", reason="For winning.")]
 
-    reply = PlayerViewReply.model_validate(player_view(game, "player-3"))
+    reply = PlayerViewReply.model_validate(player_view(game, "player-3", NOW))
 
     assert reply.model_dump()["awards"] == [
         {"title": "Champions", "recipient": "Red Team", "reason": "For winning."}
@@ -36,7 +37,7 @@ def test_the_rejoin_reply_carries_the_tiebreaker_in_play() -> None:
     game = tied_after_last_round(rounds_per_team=1)
     game.tiebreaker = Tiebreaker(cycle=1, team_ids=["team-1", "team-2"], first_round=2)
 
-    reply = PlayerViewReply.model_validate(player_view(game, "player-3"))
+    reply = PlayerViewReply.model_validate(player_view(game, "player-3", NOW))
 
     assert reply.model_dump()["tiebreaker"] == {
         "cycle": 1,

@@ -5,7 +5,7 @@ learned from the events sent to them so far: whatever went to the whole room,
 plus what went privately to their team. So:
 
 - Everyone sees the players, teams, scores, settings, and the current round's
-  phase and guesses, and which teams have picked a personality.
+  phase, guesses, and guess deadline, and which teams have picked a personality.
 - Only the acting team's players see the round's prompt, script, and roles.
 - A team's own personality is shown only once it has been revealed, after
   the team's first personality guess. The script never names it.
@@ -15,6 +15,7 @@ plus what went privately to their team. So:
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from slop.application.guess_and_score import REVEAL_PERSONALITY_TO_ROOM
@@ -25,7 +26,7 @@ from slop.domain.round import Round
 from slop.domain.script import Script
 from slop.domain.team import Team
 
-RoundPhase = Literal["waiting_for_prompt", "guessing", "guessing_personality"]
+RoundPhase = Literal["waiting_for_prompt", "guessing", "judging", "guessing_personality"]
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,7 @@ class RoundView:
     prompt_winner_team_id: str | None
     prompt: str | None
     script: ScriptView | None
+    guess_deadline: datetime | None  # when guessing closes, once the script is ready
 
 
 @dataclass(frozen=True)
@@ -136,10 +138,11 @@ class PlayerView:
     tiebreaker: TiebreakerView | None  # None until a tiebreaker starts
     my_pick: PersonalityPick | None
     awards: tuple[AwardView, ...]  # empty until the game has ended and awards are given
+    server_time: datetime  # lets a phone with a wrong clock work out the time left
 
 
-def player_view(game: Game, player_id: str) -> PlayerView:
-    """Return the game as ``player_id`` may see it.
+def player_view(game: Game, player_id: str, now: datetime) -> PlayerView:
+    """Return the game as ``player_id`` may see it at ``now``.
 
     Raises:
         GameRuleError: If the player isn't in the game
@@ -187,6 +190,7 @@ def player_view(game: Game, player_id: str) -> PlayerView:
             else None
         ),
         awards=tuple(AwardView(a.title, a.recipient, a.reason) for a in game.awards),
+        server_time=now,
     )
 
 
@@ -228,15 +232,16 @@ def _round_view(game: Game, viewer: Player) -> RoundView | None:
         prompt_winner_team_id=current.prompt_winner_team_id,
         prompt=current.prompt if acting else None,
         script=_script_view(current, current.script) if acting and current.script else None,
+        guess_deadline=current.guess_deadline,
     )
 
 
 def _phase(current: Round) -> RoundPhase:
     if current.script is None:
         return "waiting_for_prompt"
-    if not current.guessing_closed:
-        return "guessing"
-    return "guessing_personality"
+    if current.guessing_closed:
+        return "guessing_personality"
+    return "judging" if current.guessing_ended else "guessing"
 
 
 def _script_view(current: Round, script: Script) -> ScriptView:
