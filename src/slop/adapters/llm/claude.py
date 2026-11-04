@@ -29,7 +29,7 @@ from slop.ports.llm import AWARD_COUNT, GameSummary, LLMError
 if TYPE_CHECKING:
     from slop.ports.llm import LLMPort
 
-DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_MODEL = "claude-haiku-5-5"
 # Seconds per HTTP attempt. The SDK retries timeouts, 429s, 5xx, and connection
 # errors MAX_RETRIES times with backoff before giving up.
 DEFAULT_TIMEOUT = 20.0

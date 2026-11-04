@@ -101,7 +101,7 @@ def test_serve_selects_claude_from_flag_or_env_var(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("SLOP_LLM", "claude")
     settings = parse_args(["serve"])
     assert settings.llm == "claude"
-    assert settings.llm_model == DEFAULT_LLM_MODEL == "claude-sonnet-5-5"
+    assert settings.llm_model == DEFAULT_LLM_MODEL == "claude-haiku-5-5"
 
 
 def test_serve_reads_llm_model_from_flag_or_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
