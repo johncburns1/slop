@@ -30,6 +30,7 @@ from slop.domain.events import (
     PlayerJoinedTeam,
     PlayerLeft,
     PlayerReconnected,
+    PromptRevealed,
     PromptSubmitted,
     RoleAssigned,
     RoundCompleted,
@@ -195,6 +196,9 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
         case PersonalityRevealed():
             # Notification only: the guess and its result are in PersonalityGuessSubmitted.
             _team(game, event.team_id)
+            _round(game, event.round_number)
+        case PromptRevealed():
+            # Notification only: the prompt is already in PromptSubmitted.
             _round(game, event.round_number)
         case ScoresUpdated():
             current = _round(game, event.round_number)

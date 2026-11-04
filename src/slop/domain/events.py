@@ -221,6 +221,14 @@ class PersonalityRevealed(GameEvent):
     personality_id: str
 
 
+class PromptRevealed(GameEvent):
+    """Emitted at the end of a round to tell the whole room what the prompt was."""
+
+    event_type: str = "PromptRevealed"
+    round_number: int
+    prompt: str
+
+
 class ScoresUpdated(GameEvent):
     """Emitted when scores are calculated and updated."""
 

@@ -165,11 +165,12 @@ async def test_acting_team_plays_a_round_over_socketio() -> None:
             "GuessAccepted",
             "PersonalityGuessSubmitted",
             "PersonalityRevealed",
+            "PromptRevealed",
             "ScoresUpdated",
             "RoundCompleted",
             "RoundStarted",
         ]
-        round_types = (await t.types("alice"))[-12:]
+        round_types = (await t.types("alice"))[-13:]
         assert round_types == [*script_for_actors, "ScriptReady", *scoring]
         carol_types = await t.types("carol")
         assert carol_types[carol_types.index("ScriptReady") :] == ["ScriptReady", *scoring]
