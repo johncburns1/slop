@@ -31,6 +31,7 @@ from slop.domain import (
     NoGuessAccepted,
     PersonalityGuessSubmitted,
     PersonalityRevealed,
+    PromptRevealed,
     RoundCompleted,
     RoundStarted,
     ScoresUpdated,
@@ -328,6 +329,7 @@ async def test_the_round_completes_and_the_turn_passes_to_the_next_team(
     assert [type(e) for e in events] == [
         PersonalityGuessSubmitted,
         PersonalityRevealed,
+        PromptRevealed,
         ScoresUpdated,
         RoundCompleted,
         RoundStarted,
@@ -342,7 +344,7 @@ async def test_the_round_completes_and_the_turn_passes_to_the_next_team(
         (1, "team-2", None),
     ]
     for socket_id in ALL_SOCKETS:
-        assert realtime.received_by(socket_id)[-5:] == events
+        assert realtime.received_by(socket_id)[-6:] == events
     assert await load_game(deps, game.id) == game
     write_evidence(
         "guess-and-score/who-received-what.json",
@@ -375,6 +377,24 @@ async def test_the_personality_is_revealed_to_the_room_after_the_acting_team_gue
         assert (revealed.team_id, revealed.personality_id) == ("team-1", "noir")
 
 
+async def test_the_prompt_is_revealed_to_the_room_only_after_the_acting_team_guesses(
+    deps: GameDeps, realtime: RecordingRealtime
+):
+    game = await start(deps, realtime, in_guessing_phase())
+
+    await pick_winning_guess(deps, PickWinningGuess(game.id, "player-1", None))
+    assert realtime.who_received(PromptRevealed) == set()
+
+    await guess_personality(deps, GuessPersonality(game.id, "player-1", "melodrama"))
+
+    assert realtime.who_received(PromptRevealed) == ALL_SOCKETS
+    (revealed,) = [e for e in realtime.received_by("socket-3") if isinstance(e, PromptRevealed)]
+    assert (revealed.round_number, revealed.prompt) == (
+        0,
+        "Superhero saves city from angry aliens",
+    )
+
+
 async def test_the_reveal_can_be_kept_to_the_acting_team(
     deps: GameDeps, realtime: RecordingRealtime, monkeypatch: pytest.MonkeyPatch
 ):
@@ -384,6 +404,7 @@ async def test_the_reveal_can_be_kept_to_the_acting_team(
     await play_out(deps, game, winning_guess=0, personality="noir")
 
     assert realtime.who_received(PersonalityRevealed) == ACTING_SOCKETS
+    assert realtime.who_received(PromptRevealed) == ALL_SOCKETS
     assert realtime.who_received(RoundCompleted) == ALL_SOCKETS
 
 

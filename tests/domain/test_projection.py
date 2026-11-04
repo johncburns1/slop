@@ -20,6 +20,7 @@ from slop.domain import (
     PlayerJoinedTeam,
     PlayerLeft,
     PlayerReconnected,
+    PromptRevealed,
     PromptSubmitted,
     Role,
     RoleAssigned,
@@ -239,6 +240,16 @@ def test_personality_revealed_is_a_notification_only():
     revealed = PersonalityRevealed(
         game_id=GAME_ID, round_number=0, team_id="team-1", personality_id="noir"
     )
+
+    after = apply_event(before, revealed)
+
+    assert after.last_event_at == revealed.timestamp
+    assert replace(after, last_event_at=before.last_event_at) == before
+
+
+def test_prompt_revealed_is_a_notification_only():
+    before = replay([*lobby_events(), *round_zero_events()])
+    revealed = PromptRevealed(game_id=GAME_ID, round_number=0, prompt="Cat steals the moon")
 
     after = apply_event(before, revealed)
 

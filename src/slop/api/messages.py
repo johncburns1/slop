@@ -43,7 +43,9 @@ rounds numbered from ``first_round``. A team's ``personality_id`` stays null unt
 ``awards`` is the end-of-game awards (empty until given).
 
 The server sends game events to clients under their ``event_type`` (such as
-``PlayerJoined``), with the event as the payload. When the game ends, the
+``PlayerJoined``), with the event as the payload. A round's prompt goes only
+to the acting team until the acting team guesses the personality; then the
+room gets ``PromptRevealed {round_number, prompt}``. When the game ends, the
 room gets ``GameCompleted`` and then, if the AI wrote usable awards,
 ``AwardsGiven {awards: [{title, recipient, reason}]}``, where ``recipient``
 is a team or player name. If no awards could be written, ``AwardsGiven`` is

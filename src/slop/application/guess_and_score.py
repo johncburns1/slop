@@ -21,6 +21,7 @@ from slop.domain.events import (
     NoGuessAccepted,
     PersonalityGuessSubmitted,
     PersonalityRevealed,
+    PromptRevealed,
     RoundCompleted,
     ScoresUpdated,
 )
@@ -135,10 +136,11 @@ async def pick_winning_guess(deps: GameDeps, command: PickWinningGuess) -> Game:
 
 
 async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
-    """Record the guess, reveal the personality, score and complete the round, and move on.
+    """Record the guess, reveal the personality and prompt, score the round, and move on.
 
-    The reveal goes to the room, or only to the acting team when
-    ``REVEAL_PERSONALITY_TO_ROOM`` is off. ``RoundCompleted`` carries every
+    The personality reveal goes to the room, or only to the acting team when
+    ``REVEAL_PERSONALITY_TO_ROOM`` is off. The prompt, which only the acting
+    team has seen until now, goes to the room. ``RoundCompleted`` carries every
     team's total. Then ``finish_or_continue`` starts the next round, starts
     a tiebreaker, or ends the game.
 
@@ -153,7 +155,8 @@ async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
         raise GameRuleError("Pick the winning guess, or say nobody got it, first")
     acting = _check_player_is_acting(game, current, command.player_id)
     guessed = get_personality(command.personality_id)
-    assert current.script is not None  # guessing only closes once there is a script
+    # Guessing only closes once there is a script, and so a prompt.
+    assert current.script is not None and current.prompt is not None
     actual = current.script.personality
 
     changes = round_score_changes(
@@ -170,6 +173,7 @@ async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
             game_id=game.id, round_number=current.round_number, personality_guess=guessed.id
         ),
         revealed if REVEAL_PERSONALITY_TO_ROOM else Private(revealed, tuple(acting.player_ids)),
+        PromptRevealed(game_id=game.id, round_number=current.round_number, prompt=current.prompt),
         ScoresUpdated(game_id=game.id, round_number=current.round_number, score_changes=changes),
         RoundCompleted(game_id=game.id, round_number=current.round_number, final_scores=totals),
     ]

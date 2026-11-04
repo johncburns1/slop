@@ -25,6 +25,7 @@ from slop.domain import (
     PlayerJoinedTeam,
     PlayerLeft,
     PlayerReconnected,
+    PromptRevealed,
     PromptSubmitted,
     RoleAssigned,
     RoundCompleted,
@@ -149,6 +150,7 @@ def round_zero_scored_events() -> list[GameEvent]:
         PersonalityRevealed(
             game_id=GAME_ID, round_number=0, team_id="team-1", personality_id="noir"
         ),
+        PromptRevealed(game_id=GAME_ID, round_number=0, prompt="Cat steals the moon"),
         ScoresUpdated(game_id=GAME_ID, round_number=0, score_changes={"team-1": 2, "team-2": 1}),
         RoundCompleted(game_id=GAME_ID, round_number=0, final_scores={"team-1": 2, "team-2": 1}),
     ]
