@@ -92,6 +92,17 @@ const reducers = {
     view.awards = [];
     for (const team of view.teams) Object.assign(team, { score: 0, has_picked: false, personality_id: null });
   },
+  // Only the picking team gets this event, so it is always this player's own pick.
+  PersonalityAssigned(view, e) {
+    view.my_pick = { team_id: e.team_id, personality_id: e.personality_id };
+  },
+  PersonalityPicked(view, e) {
+    const team = view.teams.find((t) => t.id === e.picked_by_team_id);
+    if (team) team.has_picked = true;
+  },
+  RoundStarted(view) {
+    view.status = "playing";
+  },
 };
 
 class Game {
@@ -172,6 +183,19 @@ class Game {
 
   playAgain() {
     return this._send("play_again", {});
+  }
+
+  /** The built-in personalities as [{id, name, description}], fetched once. */
+  async personalities() {
+    if (!this._personalities) {
+      const { personalities } = await this._send("list_personalities", {});
+      this._personalities = personalities;
+    }
+    return this._personalities;
+  }
+
+  assignPersonality(personalityId) {
+    return this._send("assign_personality", { personality_id: personalityId });
   }
 
   async _onConnect() {

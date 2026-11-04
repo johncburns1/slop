@@ -621,3 +621,24 @@ button:disabled {
   content: "> " / "";
   color: var(--muted);
 }
+
+/* Personality pick */
+
+.options.stacked {
+  grid-template-columns: 1fr;
+}
+
+/* Stays on screen while scrolling the cards, so a tap is always one tap from confirming. */
+.confirm-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px 12px 0;
+  background: var(--bg);
+}
+
+.picked {
+  color: var(--accent);
+  font-weight: 700;
+}

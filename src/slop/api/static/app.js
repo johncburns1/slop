@@ -10,6 +10,7 @@ import * as connecting from "./screens/connecting.js";
 import * as finished from "./screens/finished.js";
 import * as home from "./screens/home.js";
 import * as lobby from "./screens/lobby.js";
+import * as personality from "./screens/personality.js";
 import * as waiting from "./screens/waiting.js";
 
 function screenFor(state) {
@@ -18,6 +19,8 @@ function screenFor(state) {
   switch (state.view.status) {
     case "lobby":
       return lobby;
+    case "personality_selection":
+      return personality;
     case "finished":
       return finished;
     default:
