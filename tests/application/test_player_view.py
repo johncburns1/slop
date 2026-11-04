@@ -5,6 +5,7 @@ import pytest
 from slop.application.player_view import PlayerView, player_view
 from slop.domain import Award, GameStatus
 from slop.domain.errors import GameRuleError
+from slop.domain.game import Tiebreaker
 from tests.builders import (
     DEFAULT_PROMPT,
     in_guessing_phase,
@@ -139,6 +140,24 @@ def test_no_round_is_shown_between_the_last_round_and_what_comes_next():
 
     assert view.current_round is None
     assert [t.score for t in view.teams] == [2, 2]
+
+
+def test_there_is_no_tiebreaker_in_the_view_until_one_starts():
+    assert player_view(waiting_for_prompt(), "player-1").tiebreaker is None
+
+
+def test_everyone_sees_the_tiebreaker_in_play_so_they_can_tell_whose_turn_is_next():
+    game = tied_after_last_round(rounds_per_team=1)
+    game.tiebreaker = Tiebreaker(cycle=1, team_ids=["team-2", "team-1"], first_round=2)
+
+    for player_id in ("player-1", "player-3"):
+        tiebreaker = player_view(game, player_id).tiebreaker
+        assert tiebreaker is not None
+        assert (tiebreaker.cycle, tiebreaker.team_ids, tiebreaker.first_round) == (
+            1,
+            ("team-2", "team-1"),
+            2,
+        )
 
 
 def test_everyone_sees_the_awards_once_the_game_has_finished():

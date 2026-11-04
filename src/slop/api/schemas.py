@@ -186,6 +186,12 @@ class RoundView(ViewModel):
     script: ScriptView | None
 
 
+class TiebreakerView(ViewModel):
+    cycle: int
+    team_ids: list[str]
+    first_round: int
+
+
 class AwardView(ViewModel):
     title: str
     recipient: str
@@ -206,6 +212,7 @@ class PlayerViewReply(Reply):
     players: list[PlayerSummary]
     teams: list[TeamView]
     current_round: RoundView | None
+    tiebreaker: TiebreakerView | None
     my_pick: PersonalityPick | None
     awards: list[AwardView]
 
