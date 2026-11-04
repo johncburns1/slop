@@ -12,6 +12,9 @@ import { io } from "./vendor/socket.io.esm.min.js";
 
 const SESSION_KEY = "slop.session";
 const ACK_TIMEOUT_MS = 10000;
+// submit_prompt acks only once the script is written. The AI gets two tries of
+// up to three 20-second calls each (see adapters/llm/claude.py), plus backoff.
+const SCRIPT_ACK_TIMEOUT_MS = 150000;
 
 /** A message the server rejected. `code` and `message` come from its error reply. */
 export class GameError extends Error {
@@ -77,6 +80,66 @@ const reducers = {
   PersonalitySelectionStarted(view) {
     view.status = "personality_selection";
   },
+  RoundStarted(view, e) {
+    view.status = "playing";
+    view.current_round = {
+      round_number: e.round_number,
+      acting_team_id: e.acting_team_id,
+      phase: "waiting_for_prompt",
+      guesses: [],
+      prompt_winner_team_id: null,
+      prompt: null,
+      script: null,
+    };
+  },
+  // PromptSubmitted, ScriptGenerated, RoleAssigned, and ScriptGenerationFailed go only to the acting team.
+  PromptSubmitted(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.prompt = e.prompt;
+  },
+  ScriptGenerated(view, e) {
+    const round = currentRound(view, e);
+    if (!round) return;
+    round.script = {
+      content: e.script_content,
+      roles: e.roles.map((r) => ({ name: r.name, description: r.description, lines: r.lines, player_id: null })),
+      estimated_duration: e.estimated_duration,
+      word_count: e.word_count,
+    };
+  },
+  RoleAssigned(view, e) {
+    const role = currentRound(view, e)?.script?.roles.find((r) => r.name === e.role_name && !r.player_id);
+    if (role) role.player_id = e.player_id;
+  },
+  // Not in the player view: the server keeps no record of it, and a reload just shows the prompt box.
+  ScriptGenerationFailed(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.script_failures = (round.script_failures ?? 0) + 1;
+  },
+  ScriptReady(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.phase = "guessing";
+  },
+  GuessAccepted(view, e) {
+    const round = currentRound(view, e);
+    if (!round) return;
+    round.phase = "guessing_personality";
+    round.prompt_winner_team_id = e.team_id;
+  },
+  NoGuessAccepted(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.phase = "guessing_personality";
+  },
+  ScoresUpdated(view, e) {
+    for (const team of view.teams) team.score += e.score_changes[team.id] ?? 0;
+  },
+  RoundCompleted(view, e) {
+    view.current_round = null;
+    for (const team of view.teams) team.score = e.final_scores[team.id] ?? team.score;
+  },
+  TiebreakerStarted(view, e) {
+    view.tiebreaker = { cycle: e.cycle, team_ids: e.team_ids, first_round: e.first_round };
+  },
   GameCompleted(view, e) {
     view.status = "finished";
     view.current_round = null;
@@ -88,6 +151,7 @@ const reducers = {
   GameRestarted(view) {
     view.status = "personality_selection";
     view.current_round = null;
+    view.tiebreaker = null;
     view.my_pick = null;
     view.awards = [];
     for (const team of view.teams) Object.assign(team, { score: 0, has_picked: false, personality_id: null });
@@ -100,10 +164,11 @@ const reducers = {
     const team = view.teams.find((t) => t.id === e.picked_by_team_id);
     if (team) team.has_picked = true;
   },
-  RoundStarted(view) {
-    view.status = "playing";
-  },
 };
+
+function currentRound(view, event) {
+  return view.current_round?.round_number === event.round_number ? view.current_round : null;
+}
 
 class Game {
   constructor() {
@@ -181,6 +246,18 @@ class Game {
     return this._send("start_personality_selection", {});
   }
 
+  /** Resolves once the script is written, or the AI gave up (`ScriptGenerationFailed`). */
+  submitPrompt(prompt) {
+    return new Promise((resolve, reject) => {
+      // A lost connection loses the ack too, so stop waiting. Rejoining shows the script if it arrived.
+      const lost = () => reject(new Error("connection lost"));
+      this._socket.once("disconnect", lost);
+      this._send("submit_prompt", { prompt }, SCRIPT_ACK_TIMEOUT_MS)
+        .then(resolve, reject)
+        .finally(() => this._socket.off("disconnect", lost));
+    });
+  }
+
   playAgain() {
     return this._send("play_again", {});
   }
@@ -231,10 +308,15 @@ class Game {
     const next = structuredClone(view);
     reduce(next, event);
     this._set({ view: next });
+    // A phone that reconnected while the script was being written can miss the team's
+    // private events, but it does hear ScriptReady. Rejoining fetches the script.
+    if (name === "ScriptReady" && event.acting_team_id === next.team_id && !next.current_round?.script) {
+      this._rejoin().catch(() => {});
+    }
   }
 
-  async _send(name, payload) {
-    const reply = await this._socket.timeout(ACK_TIMEOUT_MS).emitWithAck(name, payload);
+  async _send(name, payload, timeoutMs = ACK_TIMEOUT_MS) {
+    const reply = await this._socket.timeout(timeoutMs).emitWithAck(name, payload);
     if (isErrorReply(reply)) throw new GameError(reply.code, reply.message, reply.request);
     return reply;
   }

@@ -642,3 +642,106 @@ button:disabled {
   color: var(--accent);
   font-weight: 700;
 }
+
+/* Playing */
+
+.scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.score {
+  display: flex;
+  flex: 1 1 40%;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 2px dashed var(--line);
+  border-left: 8px solid var(--team);
+}
+
+.score.mine {
+  border-style: solid;
+  border-color: var(--team);
+}
+
+.score .team-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score.acting .team-name::after {
+  content: " *";
+  content: " *" / "";
+  color: var(--accent-2);
+}
+
+.prompt-box {
+  width: 100%;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  color: var(--fg);
+  caret-color: var(--accent);
+  background: transparent;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  resize: none;
+}
+
+.prompt-box:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.word-count {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
+
+.word-count.over {
+  color: var(--error);
+}
+
+.role-name {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--accent);
+  text-shadow: var(--glow);
+  overflow-wrap: anywhere;
+}
+
+.role-description {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+/* Read at arm's length while performing. */
+.script {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.script p {
+  margin: 0;
+}
+
+.script .my-line {
+  padding-left: 10px;
+  border-left: 6px solid var(--accent);
+  font-weight: 700;
+}
