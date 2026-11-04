@@ -10,6 +10,7 @@ plus what went privately to their team. So:
 - A team's own personality is shown only once it has been revealed, after
   the team's first personality guess. The script never names it.
 - A team's pick for the next team is shown only to that team.
+- Everyone sees the tiebreaker cycle in play, so they can tell whose turn is next.
 - Everyone sees the end-of-game awards, once given.
 """
 
@@ -104,6 +105,15 @@ class RoundView:
 
 
 @dataclass(frozen=True)
+class TiebreakerView:
+    """The tiebreaker cycle in play: ``team_ids`` act in order, from round ``first_round``."""
+
+    cycle: int
+    team_ids: tuple[str, ...]
+    first_round: int
+
+
+@dataclass(frozen=True)
 class AwardView:
     title: str
     recipient: str  # a team or player name
@@ -123,6 +133,7 @@ class PlayerView:
     players: tuple[PlayerSummary, ...]
     teams: tuple[TeamView, ...]
     current_round: RoundView | None  # None outside a round
+    tiebreaker: TiebreakerView | None  # None until a tiebreaker starts
     my_pick: PersonalityPick | None
     awards: tuple[AwardView, ...]  # empty until the game has ended and awards are given
 
@@ -161,6 +172,15 @@ def player_view(game: Game, player_id: str) -> PlayerView:
         ),
         teams=tuple(_team_view(game, team, viewer) for team in game.teams),
         current_round=_round_view(game, viewer),
+        tiebreaker=(
+            TiebreakerView(
+                cycle=game.tiebreaker.cycle,
+                team_ids=tuple(game.tiebreaker.team_ids),
+                first_round=game.tiebreaker.first_round,
+            )
+            if game.tiebreaker is not None
+            else None
+        ),
         my_pick=(
             PersonalityPick(picked_by_viewer.id, picked_by_viewer.assigned_personality)
             if picked_by_viewer is not None and picked_by_viewer.assigned_personality is not None

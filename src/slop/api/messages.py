@@ -33,10 +33,12 @@ player in the game.
 server restart: it ties the connection to the existing player (no new
 ``PlayerJoined``; the room gets ``PlayerReconnected``) and acks with
 ``{game_id, room_code, status, settings, player_id, team_id, players, teams,
-current_round, my_pick, awards}``, the game as that player may see it (see
-``slop.application.player_view``). ``current_round`` holds the round's
-``phase`` and ``guesses``, plus its ``prompt`` and ``script`` for the acting
-team only. A team's ``personality_id`` stays null until it is revealed,
+current_round, tiebreaker, my_pick, awards}``, the game as that player may
+see it (see ``slop.application.player_view``). ``current_round`` holds the
+round's ``phase`` and ``guesses``, plus its ``prompt`` and ``script`` for the
+acting team only. ``tiebreaker`` is ``{cycle, team_ids, first_round}`` once a
+tiebreaker has started (null before): those teams act in that order, in the
+rounds numbered from ``first_round``. A team's ``personality_id`` stays null until it is revealed,
 ``my_pick`` is the personality the player's team picked for another team, and
 ``awards`` is the end-of-game awards (empty until given).
 
