@@ -27,6 +27,8 @@ The client message contract is in `src/slop/api/messages.py`.
 
 Scripts come from the AI stand-in unless you ask for Claude: `ANTHROPIC_API_KEY=... uv run slop serve --llm claude` (or `SLOP_LLM=claude`). Pick the model with `--llm-model` or `SLOP_LLM_MODEL` (default `claude-haiku-5-5`). The prompts are in `src/slop/adapters/llm/prompts.py`.
 
+Text is checked by a small word-list stand-in unless you ask for Claude: `--moderation claude` (or `SLOP_MODERATION=claude`, also needs `ANTHROPIC_API_KEY`). Pick the model with `--moderation-model` or `SLOP_MODERATION_MODEL` (default `claude-haiku-5-5`). The rules are in `src/slop/adapters/moderation/prompts.py`. If Claude can't give an answer, family games block the text and adult games allow it, and the server logs a warning.
+
 ## Validation
 
 Everything runs locally with no network or cost. Stand-ins replace the LLM, storage, realtime, and moderation, and simulated players play whole games in-process or against a real server. Named scenarios in `tests/scenarios/` cover a full game, tiebreakers, disconnects, and a server crash.

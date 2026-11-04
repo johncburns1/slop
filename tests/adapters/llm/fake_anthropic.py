@@ -5,11 +5,13 @@ cross the same HTTP boundary they would in production, with no network.
 
 By default it answers like a well-behaved model: a script with exactly the
 requested roles, or awards for people in the game. Queue ``replies`` to script
-the next responses instead (an output dict, raw text, or a whole response).
+the next responses instead (an output dict, raw text, or a whole response), or
+pass ``respond`` to answer other kinds of request, such as moderation checks.
 """
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,18 +23,20 @@ MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 
 @dataclass
 class Reply:
-    """One scripted response: structured output, raw text, or an HTTP error."""
+    """One scripted response: structured output, raw text, an HTTP error, or a dropped call."""
 
     output: dict[str, Any] | None = None
     text: str | None = None
     stop_reason: str = "end_turn"
     status: int = 200
+    raises: Exception | None = None
 
 
 @dataclass
 class FakeAnthropicAPI:
     replies: list[Reply] = field(default_factory=list)
     requests: list[dict[str, Any]] = field(default_factory=list)
+    respond: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
     def client(self, max_retries: int = 0) -> anthropic.AsyncAnthropic:
         """An SDK client whose HTTP requests this fake answers."""
@@ -48,7 +52,13 @@ class FakeAnthropicAPI:
         assert str(request.url) == MESSAGES_URL
         body = json.loads(request.content)
         self.requests.append(body)
-        reply = self.replies.pop(0) if self.replies else Reply(output=_well_behaved(body))
+        reply = (
+            self.replies.pop(0)
+            if self.replies
+            else Reply(output=(self.respond or _well_behaved)(body))
+        )
+        if reply.raises is not None:
+            raise reply.raises
         if reply.status != 200:
             error = {"type": "api_error", "message": f"fake {reply.status}"}
             return httpx2.Response(reply.status, json={"type": "error", "error": error})

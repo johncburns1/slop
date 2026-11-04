@@ -4,9 +4,11 @@
 then a default, so several copies can run side by side with different ports and
 data directories. Games are stored in a SQLite file in the data directory,
 scripts come from the LLM adapter named by `--llm` (the stand-in, or `claude`
-with the model from `--llm-model` and the key from ANTHROPIC_API_KEY),
-`--rate-limit`/`--rate-burst` cap how fast each connection may send messages, and
-`--expire-idle-minutes`/`--expire-finished-minutes` set when games are deleted.
+with the model from `--llm-model` and the key from ANTHROPIC_API_KEY), text is
+checked by the moderation adapter named by `--moderation` (likewise, with
+`--moderation-model`), `--rate-limit`/`--rate-burst` cap how fast each connection
+may send messages, and `--expire-idle-minutes`/`--expire-finished-minutes` set
+when games are deleted.
 """
 
 import argparse
@@ -20,11 +22,14 @@ import uvicorn
 
 from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
 from slop.adapters.llm.claude import DEFAULT_MODEL as DEFAULT_LLM_MODEL
+from slop.adapters.moderation import ClaudeModerationAdapter, StandInModerationAdapter
+from slop.adapters.moderation.claude import DEFAULT_MODEL as DEFAULT_MODERATION_MODEL
 from slop.adapters.storage import SQLiteStorage
 from slop.api import create_app
 from slop.api.rate_limit import DEFAULT_BURST, DEFAULT_PER_SECOND, RateLimit
 from slop.domain.expiry import DEFAULT_AFTER_FINISH, DEFAULT_IDLE, ExpiryPolicy
 from slop.ports.llm import LLMPort
+from slop.ports.moderation import ModerationPort
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -39,6 +44,14 @@ LLM_ADAPTERS: dict[str, Callable[[str], LLMPort]] = {
 # Adapters that can't start without these env vars set.
 LLM_REQUIRED_ENV: dict[str, str] = {"claude": "ANTHROPIC_API_KEY"}
 DEFAULT_LLM = "stand-in"
+# Same again for --moderation / SLOP_MODERATION, with the model from
+# --moderation-model / SLOP_MODERATION_MODEL.
+MODERATION_ADAPTERS: dict[str, Callable[[str], ModerationPort]] = {
+    "stand-in": lambda _model: StandInModerationAdapter(),
+    "claude": lambda model: ClaudeModerationAdapter(model=model),
+}
+MODERATION_REQUIRED_ENV: dict[str, str] = {"claude": "ANTHROPIC_API_KEY"}
+DEFAULT_MODERATION = "stand-in"
 
 
 @dataclass(frozen=True)
@@ -48,6 +61,8 @@ class ServeSettings:
     data_dir: Path
     llm: str = DEFAULT_LLM
     llm_model: str = DEFAULT_LLM_MODEL
+    moderation: str = DEFAULT_MODERATION
+    moderation_model: str = DEFAULT_MODERATION_MODEL
     rate_limit: RateLimit = field(default_factory=RateLimit)
     expiry: ExpiryPolicy = field(default_factory=ExpiryPolicy)
 
@@ -90,6 +105,16 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
         help=f"model the real LLM uses (env SLOP_LLM_MODEL, default {DEFAULT_LLM_MODEL})",
     )
     serve.add_argument(
+        "--moderation",
+        choices=sorted(MODERATION_ADAPTERS),
+        help=f"which provider checks text (env SLOP_MODERATION, default {DEFAULT_MODERATION})",
+    )
+    serve.add_argument(
+        "--moderation-model",
+        help="model the real moderation provider uses "
+        f"(env SLOP_MODERATION_MODEL, default {DEFAULT_MODERATION_MODEL})",
+    )
+    serve.add_argument(
         "--rate-limit",
         type=float,
         help="messages per second each connection may send "
@@ -120,6 +145,13 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
     required = LLM_REQUIRED_ENV.get(llm)
     if required and not os.environ.get(required):
         serve.error(f"--llm {llm} needs {required} to be set")
+    moderation = args.moderation or os.environ.get("SLOP_MODERATION", DEFAULT_MODERATION)
+    if moderation not in MODERATION_ADAPTERS:
+        names = ", ".join(sorted(MODERATION_ADAPTERS))
+        serve.error(f"SLOP_MODERATION must be one of {names}, got {moderation!r}")
+    required = MODERATION_REQUIRED_ENV.get(moderation)
+    if required and not os.environ.get(required):
+        serve.error(f"--moderation {moderation} needs {required} to be set")
 
     try:
         rate_limit = RateLimit(
@@ -158,6 +190,9 @@ def parse_args(argv: Sequence[str] | None = None) -> ServeSettings:
         data_dir=args.data_dir or (Path(env_data_dir) if env_data_dir else DEFAULT_DATA_DIR),
         llm=llm,
         llm_model=args.llm_model or os.environ.get("SLOP_LLM_MODEL", DEFAULT_LLM_MODEL),
+        moderation=moderation,
+        moderation_model=args.moderation_model
+        or os.environ.get("SLOP_MODERATION_MODEL", DEFAULT_MODERATION_MODEL),
         rate_limit=rate_limit,
         expiry=expiry,
     )
@@ -170,6 +205,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     app = create_app(
         storage=SQLiteStorage(settings.data_dir / DATABASE_FILE),
         llm=LLM_ADAPTERS[settings.llm](settings.llm_model),
+        moderation=MODERATION_ADAPTERS[settings.moderation](settings.moderation_model),
         rate_limit=settings.rate_limit,
         expiry=settings.expiry,
     )

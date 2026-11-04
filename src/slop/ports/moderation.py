@@ -42,6 +42,7 @@ class ModerationPort(Protocol):
 
         ``ContentTone.FAMILY`` is at least as strict as ``ContentTone.ADULT``:
         anything blocked for adults is blocked for families too. A provider
-        that can't decide should block rather than allow.
+        that can't decide must block in family games, and may allow in adult
+        ones so that an outage doesn't stop them being played.
         """
         ...

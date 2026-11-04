@@ -18,6 +18,7 @@ import pytest
 import socketio
 
 from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
+from slop.adapters.moderation import ClaudeModerationAdapter, StandInModerationAdapter
 from slop.adapters.storage import SQLiteStorage
 from slop.api.rate_limit import RateLimit
 from slop.cli import (
@@ -26,9 +27,13 @@ from slop.cli import (
     DEFAULT_HOST,
     DEFAULT_LLM,
     DEFAULT_LLM_MODEL,
+    DEFAULT_MODERATION,
+    DEFAULT_MODERATION_MODEL,
     DEFAULT_PORT,
     LLM_ADAPTERS,
+    MODERATION_ADAPTERS,
     ServeSettings,
+    main,
     parse_args,
 )
 from slop.domain.expiry import ExpiryPolicy
@@ -39,6 +44,8 @@ def test_serve_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
     monkeypatch.delenv("SLOP_LLM_MODEL", raising=False)
+    monkeypatch.delenv("SLOP_MODERATION", raising=False)
+    monkeypatch.delenv("SLOP_MODERATION_MODEL", raising=False)
 
     for name in ("SLOP_RATE_BURST", "SLOP_EXPIRE_IDLE_MINUTES", "SLOP_EXPIRE_FINISHED_MINUTES"):
         monkeypatch.delenv(name, raising=False)
@@ -136,6 +143,91 @@ def test_serve_rejects_unknown_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SLOP_LLM")
     with pytest.raises(SystemExit):
         parse_args(["serve", "--llm", "no-such-llm"])
+
+
+def test_serve_uses_the_stand_in_moderation_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLOP_MODERATION", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    assert parse_args(["serve"]).moderation == DEFAULT_MODERATION == "stand-in"
+
+
+def test_serve_selects_claude_moderation_from_flag_or_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("SLOP_MODERATION", raising=False)
+    monkeypatch.delenv("SLOP_MODERATION_MODEL", raising=False)
+
+    assert parse_args(["serve", "--moderation", "claude"]).moderation == "claude"
+    monkeypatch.setenv("SLOP_MODERATION", "claude")
+    settings = parse_args(["serve"])
+    assert settings.moderation == "claude"
+    assert settings.moderation_model == DEFAULT_MODERATION_MODEL == "claude-haiku-5-5"
+    assert parse_args(["serve", "--moderation", "stand-in"]).moderation == "stand-in"
+
+
+def test_serve_reads_moderation_model_from_flag_or_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SLOP_MODERATION_MODEL", "claude-sonnet-5-5")
+
+    assert parse_args(["serve"]).moderation_model == "claude-sonnet-5-5"
+    flags = ["serve", "--moderation-model", "claude-opus-5-5"]
+    assert parse_args(flags).moderation_model == "claude-opus-5-5"
+
+
+def test_serve_refuses_claude_moderation_without_an_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve", "--moderation", "claude"])
+
+
+def test_serve_rejects_unknown_moderation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SLOP_MODERATION", "no-such-moderation")
+
+    with pytest.raises(SystemExit):
+        parse_args(["serve"])
+    monkeypatch.delenv("SLOP_MODERATION")
+    with pytest.raises(SystemExit):
+        parse_args(["serve", "--moderation", "no-such-moderation"])
+
+
+def test_each_moderation_name_builds_its_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    claude = MODERATION_ADAPTERS["claude"]("claude-sonnet-5-5")
+
+    assert isinstance(MODERATION_ADAPTERS["stand-in"]("ignored"), StandInModerationAdapter)
+    assert isinstance(claude, ClaudeModerationAdapter)
+    assert claude.model == "claude-sonnet-5-5"
+
+
+@pytest.mark.parametrize(
+    ("flags", "adapter"),
+    [
+        ([], StandInModerationAdapter),
+        (["--moderation", "claude"], ClaudeModerationAdapter),
+    ],
+)
+def test_serve_hands_the_selected_moderation_to_the_app(
+    flags: list[str],
+    adapter: type,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("SLOP_MODERATION", raising=False)
+    built: dict[str, Any] = {}
+    monkeypatch.setattr("slop.cli.create_app", lambda **deps: built.update(deps))
+    monkeypatch.setattr("slop.cli.uvicorn.run", lambda *_args, **_kwargs: None)
+
+    main(["serve", "--data-dir", str(tmp_path), *flags])
+
+    assert isinstance(built["moderation"], adapter)
 
 
 def test_serve_reads_rate_limit_from_flags_then_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
