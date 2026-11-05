@@ -1,5 +1,6 @@
 """Tests for the shared use case flow."""
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 from slop.adapters.clock import FixedClock
 from slop.adapters.storage import InMemoryStorage, SQLiteStorage
 from slop.adapters.websocket import RecordingRealtime
-from slop.application.engine import GameDeps, Private, commit, find_game, load_game
+from slop.application.engine import GameDeps, GameLocks, Private, commit, find_game, load_game
 from slop.domain import GameEvent, PlayerLeft, PromptSubmitted, ScriptGenerated
 from slop.domain.errors import GameNotFoundError, GameRuleError
 from slop.domain.projection import ProjectionError, replay
@@ -33,7 +34,11 @@ async def commit_one_by_one(deps: GameDeps, events: list[GameEvent], clock: Fixe
     game = None
     for event in events:
         clock.advance(timedelta(seconds=1))
-        game = await commit(deps, game, [event])
+        if game is None:
+            game = await commit(deps, None, [event])
+            continue
+        async with deps.locks.hold(game.id):
+            game = await commit(deps, game, [event])
 
 
 @pytest.fixture(params=["in_memory", "sqlite"])
@@ -78,7 +83,8 @@ async def test_commit_broadcasts_to_the_room_and_sends_private_events_to_players
     for player in game.players:
         await realtime.join_room(player.socket_id, game.room_code)
 
-    await commit(deps, game, [prompt, Private(script, ("player-1", "player-2"))])
+    async with deps.locks.hold(game.id):
+        await commit(deps, game, [prompt, Private(script, ("player-1", "player-2"))])
 
     assert realtime.who_received(PromptSubmitted) == {f"socket-{n}" for n in range(1, 5)}
     assert realtime.who_received(ScriptGenerated) == {"socket-1", "socket-2"}
@@ -93,7 +99,8 @@ async def test_commit_stores_and_broadcasts_nothing_when_an_event_cannot_apply(
     bad = PlayerLeft(game_id=GAME_ID, player_id="nobody")
 
     with pytest.raises(ProjectionError):
-        await commit(deps, game, [good, bad])
+        async with deps.locks.hold(game.id):
+            await commit(deps, game, [good, bad])
 
     assert len(await storage.get_events(GAME_ID)) == 1
     assert len(realtime.broadcasts_to("ABCD")) == 1
@@ -111,3 +118,66 @@ async def test_load_and_find_raise_a_rule_error_for_unknown_games(deps: GameDeps
         await load_game(deps, "missing")
     with pytest.raises(GameRuleError, match="ZZZZ"):
         await find_game(deps, "ZZZZ")
+
+
+async def test_commit_refuses_a_caller_without_the_games_lock(
+    deps: GameDeps, storage: InMemoryStorage
+):
+    game = await commit(deps, None, lobby_events()[:1])
+
+    with pytest.raises(RuntimeError, match="without holding its lock"):
+        await commit(deps, game, [lobby_events()[1]])
+
+    assert len(await storage.get_events(GAME_ID)) == 1
+
+
+async def test_holding_a_games_lock_twice_raises_instead_of_deadlocking():
+    locks = GameLocks()
+    async with locks.hold("game-1"):
+        with pytest.raises(RuntimeError, match="already holds"):
+            async with locks.hold("game-1"):
+                pass
+
+
+async def test_a_lock_is_held_only_by_the_task_inside_the_block():
+    locks = GameLocks()
+
+    async def held_elsewhere() -> bool:
+        return locks.held("game-1")
+
+    assert not locks.held("game-1")
+    async with locks.hold("game-1"):
+        assert locks.held("game-1")
+        assert not locks.held("game-2")
+        assert not await asyncio.create_task(held_elsewhere())
+    assert not locks.held("game-1")
+
+
+async def test_a_game_has_a_lock_only_while_it_is_held_or_awaited():
+    locks = GameLocks()
+
+    async def wait_for_lock() -> None:
+        async with locks.hold("game-1"):
+            pass
+
+    async with locks.hold("game-1"):
+        waiting = asyncio.create_task(wait_for_lock())
+        cancelled = asyncio.create_task(wait_for_lock())
+        await asyncio.sleep(0)
+        assert len(locks) == 1
+        cancelled.cancel()
+        await asyncio.gather(cancelled, return_exceptions=True)
+        assert len(locks) == 1
+    await waiting
+
+    assert len(locks) == 0
+
+
+async def test_a_lock_is_released_when_its_block_raises():
+    locks = GameLocks()
+
+    with pytest.raises(ValueError):
+        async with locks.hold("game-1"):
+            raise ValueError
+
+    assert len(locks) == 0

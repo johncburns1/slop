@@ -7,7 +7,7 @@ the LLM fails or writes something unusable, the game just ends without them.
 Each award is moderated before it is shown, and one that is blocked is dropped.
 """
 
-from slop.application.engine import GameDeps, commit, load_game
+from slop.application.engine import GameDeps, commit, locked_game
 from slop.domain.award import Award
 from slop.domain.events import AwardsGiven
 from slop.domain.game import ContentTone, Game, GameStatus
@@ -44,10 +44,10 @@ async def give_awards(deps: GameDeps, game: Game) -> Game:
         return game
 
     # The LLM takes a while, so pick up anything that happened meanwhile.
-    game = await load_game(deps, game.id)
-    if game.status != GameStatus.FINISHED or game.awards:
-        return game
-    return await commit(deps, game, [AwardsGiven(game_id=game.id, awards=awards)])
+    async with locked_game(deps, game.id) as game:
+        if game.status != GameStatus.FINISHED or game.awards:
+            return game
+        return await commit(deps, game, [AwardsGiven(game_id=game.id, awards=awards)])
 
 
 def summarize(game: Game) -> GameSummary:

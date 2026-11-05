@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from slop.application.engine import GameDeps, Private, commit, load_game
+from slop.application.engine import GameDeps, Private, commit, locked_game
 from slop.application.moderation import check_player_text
 from slop.domain.ai_personality import AIPersonality
 from slop.domain.errors import GameRuleError
@@ -35,6 +35,16 @@ class SubmitPrompt:
     prompt: str
 
 
+@dataclass(frozen=True)
+class _Turn:
+    """What a script is written for: if any of this changes, the script no longer fits."""
+
+    round_number: int
+    team_id: str
+    acting: tuple[str, ...]
+    personality: AIPersonality
+
+
 async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
     """Generate the round's script from the prompt and hand out one role per acting player.
 
@@ -50,63 +60,78 @@ async def submit_prompt(deps: GameDeps, command: SubmitPrompt) -> Game:
             isn't on the acting team, or the prompt isn't 1 to 6 words
         ContentBlockedError: If moderation blocks the prompt
     """
-    game = await load_game(deps, command.game_id)
+    async with locked_game(deps, command.game_id) as game:
+        turn = _check_turn(game, command.player_id)
+        prompt = _normalized_prompt(command.prompt)
+        tone = game.settings.content_tone
+
+    await check_player_text(deps, game, prompt, "That prompt")
+    script = await _generate(deps, prompt, turn.personality, num_roles=len(turn.acting), tone=tone)
+
+    # That took a while, so check that this script is still the one the round is waiting for.
+    async with locked_game(deps, command.game_id) as game:
+        now = _check_turn(game, command.player_id)
+        if now != turn:
+            raise GameRuleError("The round is not waiting for a prompt")
+        if script is None:
+            failed = ScriptGenerationFailed(
+                game_id=game.id, round_number=now.round_number, team_id=now.team_id
+            )
+            return await commit(deps, game, [Private(failed, now.acting)])
+
+        private: list[GameEvent] = [
+            PromptSubmitted(
+                game_id=game.id,
+                round_number=now.round_number,
+                prompt=prompt,
+                submitted_by=command.player_id,
+            ),
+            ScriptGenerated(
+                game_id=game.id,
+                round_number=now.round_number,
+                script_content=script.content,
+                personality_id=script.personality,
+                roles=[
+                    {"name": role.name, "description": role.description, "lines": role.lines}
+                    for role in script.roles
+                ],
+                word_count=script.word_count,
+                estimated_duration=script.estimated_duration,
+            ),
+            *(
+                RoleAssigned(
+                    game_id=game.id,
+                    round_number=now.round_number,
+                    player_id=player_id,
+                    role_name=role.name,
+                    character_description=role.description,
+                )
+                for player_id, role in zip(now.acting, script.roles, strict=True)
+            ),
+        ]
+        # Guessing opens now, so the time the script took to write doesn't count against it.
+        ready = ScriptReady(
+            game_id=game.id,
+            round_number=now.round_number,
+            acting_team_id=now.team_id,
+            guess_deadline=deps.clock.now() + timedelta(seconds=game.settings.guess_timer_seconds),
+        )
+        return await commit(deps, game, [*(Private(e, now.acting) for e in private), ready])
+
+
+def _check_turn(game: Game, player_id: str) -> _Turn:
+    """Return the turn the player is taking by submitting a prompt now, or raise."""
     current = _round_waiting_for_prompt(game)
     team = game.get_team(current.acting_team_id)
-    _check_player_is_acting(game, team, command.player_id)
-    prompt = _normalized_prompt(command.prompt)
+    _check_player_is_acting(game, team, player_id)
     if team.assigned_personality is None:
         raise GameRuleError(f"{team.name} has no personality yet")
-    personality = get_personality(team.assigned_personality)
-    await check_player_text(deps, game, prompt, "That prompt")
-
-    acting = tuple(team.player_ids)
-    tone = game.settings.content_tone
-    script = await _generate(deps, prompt, personality, num_roles=len(acting), tone=tone)
-    if script is None:
-        failed = ScriptGenerationFailed(
-            game_id=game.id, round_number=current.round_number, team_id=team.id
-        )
-        return await commit(deps, game, [Private(failed, acting)])
-
-    private: list[GameEvent] = [
-        PromptSubmitted(
-            game_id=game.id,
-            round_number=current.round_number,
-            prompt=prompt,
-            submitted_by=command.player_id,
-        ),
-        ScriptGenerated(
-            game_id=game.id,
-            round_number=current.round_number,
-            script_content=script.content,
-            personality_id=script.personality,
-            roles=[
-                {"name": role.name, "description": role.description, "lines": role.lines}
-                for role in script.roles
-            ],
-            word_count=script.word_count,
-            estimated_duration=script.estimated_duration,
-        ),
-        *(
-            RoleAssigned(
-                game_id=game.id,
-                round_number=current.round_number,
-                player_id=player_id,
-                role_name=role.name,
-                character_description=role.description,
-            )
-            for player_id, role in zip(acting, script.roles, strict=True)
-        ),
-    ]
-    # Guessing opens now, so the time the script took to write doesn't count against it.
-    ready = ScriptReady(
-        game_id=game.id,
+    return _Turn(
         round_number=current.round_number,
-        acting_team_id=team.id,
-        guess_deadline=deps.clock.now() + timedelta(seconds=game.settings.guess_timer_seconds),
+        team_id=team.id,
+        acting=tuple(team.player_ids),
+        personality=get_personality(team.assigned_personality),
     )
-    return await commit(deps, game, [*(Private(e, acting) for e in private), ready])
 
 
 def _round_waiting_for_prompt(game: Game) -> Round:

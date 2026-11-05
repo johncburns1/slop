@@ -14,8 +14,8 @@ next: the next team's round, a tiebreaker, or the end of the game.
 from dataclasses import dataclass
 from datetime import datetime
 
-from slop.application.engine import GameDeps, Private, commit, load_game
-from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
+from slop.application.engine import GameDeps, Private, commit, locked_game
+from slop.application.finish_or_continue import give_awards_if_finished, move_on
 from slop.application.moderation import check_player_text
 from slop.domain.errors import GameRuleError
 from slop.domain.events import (
@@ -101,33 +101,32 @@ async def submit_guess(deps: GameDeps, command: SubmitGuess) -> Game:
             the acting team, or the guess is blank
         ContentBlockedError: If moderation blocks the guess
     """
-    game = await _game_open_for_guessing(deps, command.game_id)
-    current = _round_open_for_guessing(game)
-    player = _player(game, command.player_id)
-    if player.team_id is None:
-        raise GameRuleError(f"{player.name} is not on a team")
-    if player.team_id == current.acting_team_id:
-        raise GameRuleError("The acting team can't guess its own prompt")
     guess = " ".join(command.guess.split())
-    if not guess:
-        raise GameRuleError("A guess can't be blank")
-    await check_player_text(deps, game, guess, "That guess")
-    # Moderation can take a while, and guessing may have closed in the meantime.
-    game = await _game_open_for_guessing(deps, command.game_id)
-    current = _round_open_for_guessing(game)
+    async with locked_game(deps, command.game_id) as game:
+        current, _ = await _check_can_guess(deps, game, command.player_id)
+        round_number = current.round_number
+        if not guess:
+            raise GameRuleError("A guess can't be blank")
 
-    return await commit(
-        deps,
-        game,
-        [
-            GuessSubmitted(
-                game_id=game.id,
-                round_number=current.round_number,
-                team_id=player.team_id,
-                guess=guess,
-            )
-        ],
-    )
+    await check_player_text(deps, game, guess, "That guess")
+
+    # Moderation can take a while, and guessing may have closed in the meantime.
+    async with locked_game(deps, command.game_id) as game:
+        current, team_id = await _check_can_guess(deps, game, command.player_id)
+        if current.round_number != round_number:
+            raise GameRuleError("Guessing is over for this round")
+        return await commit(
+            deps,
+            game,
+            [
+                GuessSubmitted(
+                    game_id=game.id,
+                    round_number=current.round_number,
+                    team_id=team_id,
+                    guess=guess,
+                )
+            ],
+        )
 
 
 async def end_guessing(deps: GameDeps, command: EndGuessing) -> Game:
@@ -138,12 +137,12 @@ async def end_guessing(deps: GameDeps, command: EndGuessing) -> Game:
         GameRuleError: If no round is open for guessing, or the player isn't
             on the acting team
     """
-    game = await load_game(deps, command.game_id)
-    current = _round_open_for_guessing(game)
-    _check_player_is_acting(game, current, command.player_id)
-    return await commit(
-        deps, game, [GuessingEnded(game_id=game.id, round_number=current.round_number)]
-    )
+    async with locked_game(deps, command.game_id) as game:
+        current = _round_open_for_guessing(game)
+        _check_player_is_acting(game, current, command.player_id)
+        return await commit(
+            deps, game, [GuessingEnded(game_id=game.id, round_number=current.round_number)]
+        )
 
 
 async def close_guessing_if_due(deps: GameDeps, command: CloseGuessingIfDue) -> Game:
@@ -152,9 +151,9 @@ async def close_guessing_if_due(deps: GameDeps, command: CloseGuessingIfDue) -> 
     Raises:
         GameNotFoundError: If there is no such game
     """
-    game = await load_game(deps, command.game_id)
-    events = overdue_guessing_events(game, deps.clock.now())
-    return await commit(deps, game, events) if events else game
+    async with locked_game(deps, command.game_id) as game:
+        events = overdue_guessing_events(game, deps.clock.now())
+        return await commit(deps, game, events) if events else game
 
 
 def overdue_guessing_events(game: Game, now: datetime) -> list[GameEvent]:
@@ -181,23 +180,23 @@ async def pick_winning_guess(deps: GameDeps, command: PickWinningGuess) -> Game:
         GameRuleError: If no round is waiting to be judged, the player isn't
             on the acting team, or there is no guess at ``guess_index``
     """
-    game = await load_game(deps, command.game_id)
-    current = _round_to_judge(game)
-    _check_player_is_acting(game, current, command.player_id)
+    async with locked_game(deps, command.game_id) as game:
+        current = _round_to_judge(game)
+        _check_player_is_acting(game, current, command.player_id)
 
-    event: GameEvent
-    if command.guess_index is None:
-        event = NoGuessAccepted(game_id=game.id, round_number=current.round_number)
-    else:
-        if not 0 <= command.guess_index < len(current.prompt_guesses):
-            raise GameRuleError(f"No guess {command.guess_index} in this round")
-        event = GuessAccepted(
-            game_id=game.id,
-            round_number=current.round_number,
-            team_id=current.prompt_guesses[command.guess_index].team_id,
-            guess_index=command.guess_index,
-        )
-    return await commit(deps, game, [event])
+        event: GameEvent
+        if command.guess_index is None:
+            event = NoGuessAccepted(game_id=game.id, round_number=current.round_number)
+        else:
+            if not 0 <= command.guess_index < len(current.prompt_guesses):
+                raise GameRuleError(f"No guess {command.guess_index} in this round")
+            event = GuessAccepted(
+                game_id=game.id,
+                round_number=current.round_number,
+                team_id=current.prompt_guesses[command.guess_index].team_id,
+                guess_index=command.guess_index,
+            )
+        return await commit(deps, game, [event])
 
 
 async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
@@ -214,36 +213,43 @@ async def guess_personality(deps: GameDeps, command: GuessPersonality) -> Game:
         GameRuleError: If the round's guesses haven't been judged yet, the
             player isn't on the acting team, or the personality is unknown
     """
-    game = await load_game(deps, command.game_id)
-    current = _current_round(game)
-    if not current.guessing_closed:
-        raise GameRuleError("Pick the winning guess, or say nobody got it, first")
-    acting = _check_player_is_acting(game, current, command.player_id)
-    guessed = get_personality(command.personality_id)
-    # Guessing only closes once there is a script, and so a prompt.
-    assert current.script is not None and current.prompt is not None
-    actual = current.script.personality
+    async with locked_game(deps, command.game_id) as game:
+        current = _current_round(game)
+        if not current.guessing_closed:
+            raise GameRuleError("Pick the winning guess, or say nobody got it, first")
+        acting = _check_player_is_acting(game, current, command.player_id)
+        guessed = get_personality(command.personality_id)
+        # Guessing only closes once there is a script, and so a prompt.
+        assert current.script is not None and current.prompt is not None
+        actual = current.script.personality
 
-    changes = round_score_changes(
-        acting_team_id=acting.id,
-        prompt_winner_team_id=current.prompt_winner_team_id,
-        personality_correct=guessed.id == actual,
-    )
-    totals = {team.id: team.score + changes.get(team.id, 0) for team in game.teams}
-    revealed = PersonalityRevealed(
-        game_id=game.id, round_number=current.round_number, team_id=acting.id, personality_id=actual
-    )
-    events: list[GameEvent | Private] = [
-        PersonalityGuessSubmitted(
-            game_id=game.id, round_number=current.round_number, personality_guess=guessed.id
-        ),
-        revealed if REVEAL_PERSONALITY_TO_ROOM else Private(revealed, tuple(acting.player_ids)),
-        PromptRevealed(game_id=game.id, round_number=current.round_number, prompt=current.prompt),
-        ScoresUpdated(game_id=game.id, round_number=current.round_number, score_changes=changes),
-        RoundCompleted(game_id=game.id, round_number=current.round_number, final_scores=totals),
-    ]
-    game = await commit(deps, game, events)
-    return await finish_or_continue(deps, FinishOrContinue(game.id))
+        changes = round_score_changes(
+            acting_team_id=acting.id,
+            prompt_winner_team_id=current.prompt_winner_team_id,
+            personality_correct=guessed.id == actual,
+        )
+        totals = {team.id: team.score + changes.get(team.id, 0) for team in game.teams}
+        revealed = PersonalityRevealed(
+            game_id=game.id,
+            round_number=current.round_number,
+            team_id=acting.id,
+            personality_id=actual,
+        )
+        events: list[GameEvent | Private] = [
+            PersonalityGuessSubmitted(
+                game_id=game.id, round_number=current.round_number, personality_guess=guessed.id
+            ),
+            revealed if REVEAL_PERSONALITY_TO_ROOM else Private(revealed, tuple(acting.player_ids)),
+            PromptRevealed(
+                game_id=game.id, round_number=current.round_number, prompt=current.prompt
+            ),
+            ScoresUpdated(
+                game_id=game.id, round_number=current.round_number, score_changes=changes
+            ),
+            RoundCompleted(game_id=game.id, round_number=current.round_number, final_scores=totals),
+        ]
+        game = await move_on(deps, await commit(deps, game, events))
+    return await give_awards_if_finished(deps, game)
 
 
 def round_score_changes(
@@ -290,14 +296,21 @@ def _round_open_for_guessing(game: Game) -> Round:
     return current
 
 
-async def _game_open_for_guessing(deps: GameDeps, game_id: str) -> Game:
-    """Load the game, closing guessing first if its time is up; raise unless it is open."""
-    game = await load_game(deps, game_id)
-    _round_open_for_guessing(game)
+async def _check_can_guess(deps: GameDeps, game: Game, player_id: str) -> tuple[Round, str]:
+    """Return the round taking the player's guess and their team's id, or raise.
+
+    Closes guessing first if its time is up, so the caller must hold the game's lock.
+    """
+    current = _round_open_for_guessing(game)
     if events := overdue_guessing_events(game, deps.clock.now()):
         await commit(deps, game, events)
         raise GameRuleError("Guessing is over for this round")
-    return game
+    player = _player(game, player_id)
+    if player.team_id is None:
+        raise GameRuleError(f"{player.name} is not on a team")
+    if player.team_id == current.acting_team_id:
+        raise GameRuleError("The acting team can't guess its own prompt")
+    return current, player.team_id
 
 
 def _player(game: Game, player_id: str) -> Player:

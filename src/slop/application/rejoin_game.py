@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from slop.application.engine import GameDeps, commit, find_game
+from slop.application.engine import GameDeps, commit, locked_room
 from slop.application.guess_and_score import overdue_guessing_events
 from slop.application.player_view import PlayerView, player_view
 from slop.domain.errors import GameRuleError
@@ -39,18 +39,20 @@ async def rejoin_game(deps: GameDeps, command: RejoinGame) -> Rejoined:
         GameNotFoundError: If no game has this room code
         GameRuleError: If the player isn't in the game
     """
-    game = await find_game(deps, command.room_code.strip().upper())
-    if all(player.id != command.player_id for player in game.players):
-        raise GameRuleError(f"Player {command.player_id} is not in this game")
+    async with locked_room(deps, command.room_code.strip().upper()) as game:
+        if all(player.id != command.player_id for player in game.players):
+            raise GameRuleError(f"Player {command.player_id} is not in this game")
 
-    event = PlayerReconnected(
-        game_id=game.id, player_id=command.player_id, socket_id=command.socket_id
-    )
-    # Join the room first so the player also hears they are back.
-    await deps.realtime.join_room(command.socket_id, game.room_code)
-    try:
-        game = await commit(deps, game, [*overdue_guessing_events(game, deps.clock.now()), event])
-    except Exception:
-        await deps.realtime.leave_room(command.socket_id, game.room_code)
-        raise
+        event = PlayerReconnected(
+            game_id=game.id, player_id=command.player_id, socket_id=command.socket_id
+        )
+        # Join the room first so the player also hears they are back.
+        await deps.realtime.join_room(command.socket_id, game.room_code)
+        try:
+            game = await commit(
+                deps, game, [*overdue_guessing_events(game, deps.clock.now()), event]
+            )
+        except Exception:
+            await deps.realtime.leave_room(command.socket_id, game.room_code)
+            raise
     return Rejoined(game=game, view=player_view(game, command.player_id, deps.clock.now()))

@@ -10,9 +10,18 @@ from slop.domain.expiry import ExpiryPolicy, is_expired
 
 
 async def expire_games(deps: GameDeps, policy: ExpiryPolicy) -> list[str]:
-    """Delete the games that have expired by now, and return their ids."""
+    """Delete the games that have expired by now, and return their ids.
+
+    Each game is checked again under its lock, so an event that arrives just
+    in time keeps it alive, and a command that was waiting finds it gone.
+    """
     now = deps.clock.now()
-    expired = [game.id for game in await deps.storage.list_games() if is_expired(game, now, policy)]
-    for game_id in expired:
-        await deps.storage.delete_game(game_id)
+    candidates = [g.id for g in await deps.storage.list_games() if is_expired(g, now, policy)]
+    expired = []
+    for game_id in candidates:
+        async with deps.locks.hold(game_id):
+            game = await deps.storage.get_snapshot(game_id)
+            if game is not None and is_expired(game, now, policy):
+                await deps.storage.delete_game(game_id)
+                expired.append(game_id)
     return expired

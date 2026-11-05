@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from slop.application.engine import GameDeps, commit, find_game
+from slop.application.engine import GameDeps, commit, locked_game, locked_room
 from slop.application.moderation import check_player_text
 from slop.domain.errors import GameRuleError
 from slop.domain.events import PlayerJoined
@@ -39,8 +39,30 @@ async def join_game(deps: GameDeps, command: JoinGame) -> Joined:
             blank, too long, or already taken in this game (whatever the case)
         ContentBlockedError: If moderation blocks the name
     """
-    game = await find_game(deps, command.room_code.strip().upper())
     name = command.player_name.strip()
+    async with locked_room(deps, command.room_code.strip().upper()) as game:
+        _check_can_join(game, name)
+
+    await check_player_text(deps, game, name, "That name")
+
+    # Moderation can take a while, and the name or last seat may have been taken in the meantime.
+    async with locked_game(deps, game.id) as game:
+        _check_can_join(game, name)
+        player_id = deps.ids.new_id()
+        event = PlayerJoined(
+            game_id=game.id, player_id=player_id, player_name=name, socket_id=command.socket_id
+        )
+        # Join the room first so the new player also hears the broadcast.
+        await deps.realtime.join_room(command.socket_id, game.room_code)
+        try:
+            game = await commit(deps, game, [event])
+        except Exception:
+            await deps.realtime.leave_room(command.socket_id, game.room_code)
+            raise
+    return Joined(game=game, player_id=player_id)
+
+
+def _check_can_join(game: Game, name: str) -> None:
     if game.status != GameStatus.LOBBY:
         raise GameRuleError("This game has already started")
     if len(game.players) >= game.settings.max_players:
@@ -51,17 +73,3 @@ async def join_game(deps: GameDeps, command: JoinGame) -> Joined:
         raise GameRuleError(f"Name must be at most {MAX_NAME_LENGTH} characters")
     if any(player.name.casefold() == name.casefold() for player in game.players):
         raise GameRuleError(f"The name {name} is already taken in this game")
-    await check_player_text(deps, game, name, "That name")
-
-    player_id = deps.ids.new_id()
-    event = PlayerJoined(
-        game_id=game.id, player_id=player_id, player_name=name, socket_id=command.socket_id
-    )
-    # Join the room first so the new player also hears the broadcast.
-    await deps.realtime.join_room(command.socket_id, game.room_code)
-    try:
-        game = await commit(deps, game, [event])
-    except Exception:
-        await deps.realtime.leave_room(command.socket_id, game.room_code)
-        raise
-    return Joined(game=game, player_id=player_id)
