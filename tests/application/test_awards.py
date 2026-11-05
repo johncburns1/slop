@@ -70,7 +70,8 @@ async def finished(deps: GameDeps, realtime: RecordingRealtime, game: Game) -> G
         final_scores={t.id: t.score for t in game.teams},
         winner_team_id=winner.id,
     )
-    return await commit(deps, game, [completed])
+    async with deps.locks.hold(game.id):
+        return await commit(deps, game, [completed])
 
 
 def awards_to(*recipients: str) -> list[Award]:

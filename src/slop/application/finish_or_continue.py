@@ -7,7 +7,7 @@ Call it after every ``RoundCompleted``. The rules for what comes next live in
 from dataclasses import dataclass
 
 from slop.application.awards import give_awards
-from slop.application.engine import GameDeps, commit, load_game
+from slop.application.engine import GameDeps, commit, locked_game
 from slop.domain.errors import GameRuleError
 from slop.domain.events import GameCompleted, GameEvent, RoundStarted, TiebreakerStarted
 from slop.domain.game import Game, GameStatus
@@ -36,7 +36,18 @@ async def finish_or_continue(deps: GameDeps, command: FinishOrContinue) -> Game:
         GameRuleError: If the game isn't being played or its current round
             is still in play
     """
-    game = await load_game(deps, command.game_id)
+    async with locked_game(deps, command.game_id) as game:
+        game = await move_on(deps, game)
+    return await give_awards_if_finished(deps, game)
+
+
+async def move_on(deps: GameDeps, game: Game) -> Game:
+    """Do what ``finish_or_continue`` does, short of the awards, for its caller holding the lock.
+
+    Raises:
+        GameRuleError: If the game isn't being played or its current round
+            is still in play
+    """
     if game.status != GameStatus.PLAYING:
         raise GameRuleError("The game is not being played")
     if any(r.round_number == game.current_round for r in game.rounds):
@@ -57,14 +68,19 @@ async def finish_or_continue(deps: GameDeps, command: FinishOrContinue) -> Game:
                 _round_started(game, team_ids[0]),
             ]
         case EndGame(winner_team_id=winner_team_id):
-            completed = GameCompleted(
-                game_id=game.id,
-                final_scores={team.id: team.score for team in game.teams},
-                winner_team_id=winner_team_id,
+            events.append(
+                GameCompleted(
+                    game_id=game.id,
+                    final_scores={team.id: team.score for team in game.teams},
+                    winner_team_id=winner_team_id,
+                )
             )
-            # The game is over before the LLM is asked for awards.
-            return await give_awards(deps, await commit(deps, game, [completed]))
     return await commit(deps, game, events)
+
+
+async def give_awards_if_finished(deps: GameDeps, game: Game) -> Game:
+    """Ask for the awards if ``move_on`` ended the game. Call it without holding the lock."""
+    return await give_awards(deps, game) if game.status == GameStatus.FINISHED else game
 
 
 def _round_started(game: Game, acting_team_id: str) -> RoundStarted:

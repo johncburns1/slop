@@ -37,14 +37,19 @@ async def start(deps: GameDeps, realtime: RecordingRealtime, game: Game) -> Game
 async def complete_round(deps: GameDeps, game: Game, points: dict[str, int]) -> Game:
     """Score the current round with ``points`` and complete it, as scoring will."""
     totals = {team.id: team.score + points.get(team.id, 0) for team in game.teams}
-    return await commit(
-        deps,
-        game,
-        [
-            ScoresUpdated(game_id=game.id, round_number=game.current_round, score_changes=points),
-            RoundCompleted(game_id=game.id, round_number=game.current_round, final_scores=totals),
-        ],
-    )
+    async with deps.locks.hold(game.id):
+        return await commit(
+            deps,
+            game,
+            [
+                ScoresUpdated(
+                    game_id=game.id, round_number=game.current_round, score_changes=points
+                ),
+                RoundCompleted(
+                    game_id=game.id, round_number=game.current_round, final_scores=totals
+                ),
+            ],
+        )
 
 
 async def play_out(
