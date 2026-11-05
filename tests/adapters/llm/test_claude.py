@@ -8,12 +8,20 @@ from slop.adapters.llm.prompts import AWARDS_SYSTEM, CONTENT_GUIDANCE, SCRIPT_SY
 from slop.domain import ContentTone
 from slop.ports import LLMPort
 from slop.ports.llm import LLMError
-from tests.adapters.llm.contract import PROMPT, LLMPortContract, make_personality, make_summary
+from tests.adapters.llm.contract import (
+    FAMILY,
+    PROMPT,
+    LLMPortContract,
+    ToneUsed,
+    make_personality,
+    make_summary,
+)
 from tests.adapters.llm.fake_anthropic import (
     FakeAnthropicAPI,
     Reply,
     schema_fields,
     script_output,
+    tone_requested,
     user_message,
 )
 
@@ -34,6 +42,10 @@ class TestClaudeLLMAdapterContract(LLMPortContract):
     @pytest.fixture
     def adapter(self, claude: ClaudeLLMAdapter) -> LLMPort:
         return claude
+
+    @pytest.fixture
+    def tone_used(self, api: FakeAnthropicAPI) -> ToneUsed:
+        return lambda _result: tone_requested(api.requests[-1])
 
 
 async def test_defaults_to_haiku() -> None:
@@ -59,16 +71,19 @@ async def test_script_request_carries_the_inputs(api: FakeAnthropicAPI) -> None:
     assert CONTENT_GUIDANCE[ContentTone.ADULT] in request
 
 
-async def test_scripts_are_family_friendly_unless_told_otherwise(
-    claude: ClaudeLLMAdapter, api: FakeAnthropicAPI
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_every_script_attempt_carries_only_the_requested_tone(
+    claude: ClaudeLLMAdapter, api: FakeAnthropicAPI, tone: ContentTone
 ) -> None:
-    await claude.generate_script(PROMPT, make_personality(), 2)
+    api.replies.append(Reply(output=script_output(1)))
 
-    assert CONTENT_GUIDANCE[ContentTone.FAMILY] in user_message(api.requests[0])
+    await claude.generate_script(PROMPT, make_personality(), 2, tone)
+
+    assert [tone_requested(body) for body in api.requests] == [tone] * ATTEMPTS
 
 
 async def test_script_has_the_title_roles_and_lines(claude: ClaudeLLMAdapter) -> None:
-    script = await claude.generate_script(PROMPT, make_personality(), 2)
+    script = await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
     lines = script.content.splitlines()
     assert lines[0] == "The Missing Masterpiece"
@@ -93,7 +108,7 @@ async def test_retries_once_after_unusable_output(
 ) -> None:
     api.replies = [bad]
 
-    script = await claude.generate_script(PROMPT, make_personality(), 2)
+    script = await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
     assert script.get_role_count() == 2
     assert len(api.requests) == 2
@@ -105,7 +120,7 @@ async def test_raises_llm_error_after_two_unusable_outputs(
     api.replies = [Reply(output=script_output(3)) for _ in range(ATTEMPTS)]
 
     with pytest.raises(LLMError, match="3 roles instead of 2"):
-        await claude.generate_script(PROMPT, make_personality(), 2)
+        await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
     assert len(api.requests) == ATTEMPTS == 2
 
 
@@ -117,7 +132,7 @@ async def test_rejects_a_speaker_who_is_not_a_role(
     api.replies = [Reply(output=stranger), Reply(output=stranger)]
 
     with pytest.raises(LLMError, match="The Butler"):
-        await claude.generate_script(PROMPT, make_personality(), 2)
+        await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
 
 async def test_rejects_a_role_with_no_lines(
@@ -128,7 +143,7 @@ async def test_rejects_a_role_with_no_lines(
     api.replies = [Reply(output=silent), Reply(output=silent)]
 
     with pytest.raises(LLMError, match="Inspector B"):
-        await claude.generate_script(PROMPT, make_personality(), 2)
+        await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
 
 async def test_rejects_duplicate_role_names(
@@ -139,7 +154,7 @@ async def test_rejects_duplicate_role_names(
     api.replies = [Reply(output=twins), Reply(output=twins)]
 
     with pytest.raises(LLMError, match="unique"):
-        await claude.generate_script(PROMPT, make_personality(), 2)
+        await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
 
 async def test_an_api_error_raises_llm_error_without_asking_again(
@@ -148,7 +163,7 @@ async def test_an_api_error_raises_llm_error_without_asking_again(
     api.replies = [Reply(status=400)]
 
     with pytest.raises(LLMError, match="request failed"):
-        await claude.generate_script(PROMPT, make_personality(), 2)
+        await claude.generate_script(PROMPT, make_personality(), 2, FAMILY)
     assert len(api.requests) == 1
 
 
@@ -156,7 +171,7 @@ async def test_transient_server_errors_are_retried_by_the_sdk(api: FakeAnthropic
     adapter = ClaudeLLMAdapter(client=api.client(max_retries=1))
     api.replies = [Reply(status=529)]
 
-    script = await adapter.generate_script(PROMPT, make_personality(), 2)
+    script = await adapter.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
     assert script.get_role_count() == 2
     assert len(api.requests) == 2
@@ -206,4 +221,4 @@ async def test_no_teams_means_no_awards_and_no_request(
 @pytest.mark.parametrize("num_roles", [0, -1])
 async def test_rejects_non_positive_role_count(claude: ClaudeLLMAdapter, num_roles: int) -> None:
     with pytest.raises(ValueError, match="num_roles"):
-        await claude.generate_script(PROMPT, make_personality(), num_roles)
+        await claude.generate_script(PROMPT, make_personality(), num_roles, FAMILY)

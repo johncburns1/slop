@@ -4,7 +4,7 @@ from typing import Protocol
 
 import pytest
 
-from slop.domain import AIPersonality, Role, Script
+from slop.domain import AIPersonality, ContentTone, Role, Script
 from slop.ports import LLMPort
 
 
@@ -30,6 +30,7 @@ class MockLLMAdapter:
         prompt: str,
         personality: AIPersonality,
         num_roles: int,
+        content_tone: ContentTone,
     ) -> Script:
         """Mock implementation of script generation."""
         roles = [
@@ -65,6 +66,7 @@ async def test_llm_port_generate_script():
         prompt="Detective solves mysterious art heist",
         personality=personality,
         num_roles=2,
+        content_tone=ContentTone.FAMILY,
     )
 
     assert isinstance(script, Script)

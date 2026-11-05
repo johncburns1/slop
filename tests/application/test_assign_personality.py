@@ -14,6 +14,7 @@ from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain import (
     AIPersonality,
     Award,
+    ContentTone,
     Game,
     GameStatus,
     PersonalityAssigned,
@@ -42,10 +43,12 @@ class RecordingLLM:
     personalities: list[AIPersonality] = field(default_factory=list)
 
     async def generate_script(
-        self, prompt: str, personality: AIPersonality, num_roles: int
+        self, prompt: str, personality: AIPersonality, num_roles: int, content_tone: ContentTone
     ) -> Script:
         self.personalities.append(personality)
-        return await StandInLLMAdapter().generate_script(prompt, personality, num_roles)
+        return await StandInLLMAdapter().generate_script(
+            prompt, personality, num_roles, content_tone
+        )
 
     async def generate_awards(self, summary: GameSummary) -> list[Award]:
         return await StandInLLMAdapter().generate_awards(summary)
