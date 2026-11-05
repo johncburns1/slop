@@ -23,6 +23,7 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
 - ``play_again {}`` (host only, once the game has finished)
 - ``restart_game {}`` (host only, any time after the lobby: back to the lobby)
 - ``skip_turn {}`` (host only, while the acting team has no script yet)
+- ``kick_player {player_id}`` (host only, any time: remove another player)
 
 Messages with no ``->`` ack with null.
 
@@ -95,6 +96,21 @@ error. A script still being written for a skipped or restarted round is
 thrown away, and its ``submit_prompt`` gets ``rule_broken``. Both messages
 from anyone but the host are a ``rule_broken`` error to the sender only.
 
+``kick_player`` removes the player for good, in any phase of the game. The
+removed player alone gets ``RemovedFromGame {player_id}``, then the room gets
+``PlayerKicked {player_id}``. The removed player's connection leaves the room
+and is untied from the game, and ``rejoin_game`` with their old ``player_id``
+is a ``rule_broken`` error. In the lobby they may ``join_game`` again as a new
+player; once the game has started, joining is closed to them as to anyone. They
+are off their team and lose any role in the round in play. A team left with no
+players drops out of the turn order and tiebreakers and can't win, but keeps
+its score. If that was the acting team, its round ends with no points
+(``PromptRevealed`` if it had a prompt, then ``RoundCompleted``) and the next
+round starts. With fewer than two teams left with players, the game ends
+(``GameCompleted``, then ``AwardsGiven``). While teams pick personalities, the
+ring of picks closes up around an empty team, and the game starts
+(``RoundStarted``) if every team still playing now has its personality.
+
 Each connection may send 10 messages a second on average, in bursts of up to
 20 (``slop serve --rate-limit/--rate-burst``, see ``slop.api.rate_limit``). A
 message over the limit is dropped unprocessed and gets ``rate_limited``; the
@@ -129,6 +145,7 @@ from slop.api.schemas import (
     JoinedReply,
     JoinGameRequest,
     JoinTeamRequest,
+    KickPlayerRequest,
     NoPayload,
     PersonalitiesReply,
     PersonalityOption,
@@ -167,6 +184,7 @@ from slop.application.guess_and_score import (
 )
 from slop.application.guess_timers import GuessTimers
 from slop.application.join_game import JoinGame, join_game
+from slop.application.kick_player import KickPlayer, kick_player
 from slop.application.leave_game import LeaveGame, leave_game
 from slop.application.play_again import PlayAgain, play_again
 from slop.application.rejoin_game import RejoinGame, rejoin_game
@@ -228,6 +246,7 @@ class GameMessages:
         self._route("play_again", NoPayload, self.play_again)
         self._route("restart_game", NoPayload, self.restart_game)
         self._route("skip_turn", NoPayload, self.skip_turn)
+        self._route("kick_player", KickPlayerRequest, self.kick_player)
         self._realtime.on_disconnect(self.disconnected)
 
     async def create_game(self, sid: str, request: CreateGameRequest) -> GameCreatedReply:
@@ -339,6 +358,16 @@ class GameMessages:
         self._guess_timers.track(
             await skip_turn(self._deps, SkipTurn(seat.game_id, seat.player_id))
         )
+
+    async def kick_player(self, sid: str, request: KickPlayerRequest) -> None:
+        seat = self._seat(sid)
+        game = await kick_player(
+            self._deps, KickPlayer(seat.game_id, seat.player_id, request.player_id)
+        )
+        removed = Seat(game_id=seat.game_id, player_id=request.player_id)
+        for other in [s for s, taken in self._seats.items() if taken == removed]:
+            del self._seats[other]
+        self._guess_timers.track(game)
 
     async def disconnected(self, sid: str) -> None:
         """Forget the connection. Its player stays in the game, to reconnect later."""

@@ -65,6 +65,18 @@ def test_only_the_picking_team_sees_its_pick_and_everyone_sees_that_it_picked():
         assert [t.personality_id for t in view.teams] == [None, None]
 
 
+def test_a_pick_for_a_team_left_with_no_players_no_longer_counts():
+    game = selecting_personalities(num_teams=3, players_per_team=1)
+    game.get_team("team-2").assign_personality("noir", assigned_by="team-1")
+    game.get_team("team-2").remove_player("player-2")
+    game.remove_player("player-2")
+
+    view = player_view(game, "player-1", NOW)
+
+    assert view.my_pick is None
+    assert [t.has_picked for t in view.teams] == [False, False, False]
+
+
 def test_the_acting_team_sees_the_prompt_script_and_roles_mid_round():
     game = in_guessing_phase()
 

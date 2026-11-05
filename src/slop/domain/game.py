@@ -90,6 +90,7 @@ class Game:
     current_round: int = 0
     tiebreaker: Tiebreaker | None = None
     awards: list[Award] = field(default_factory=list)  # given once the game has finished
+    kicked_player_ids: list[str] = field(default_factory=list)  # removed by the host, for good
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_event_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -156,6 +157,14 @@ class Game:
             if team.id == team_id:
                 return team
         raise ValueError(f"Team {team_id} not found")
+
+    def teams_in_play(self) -> list[Team]:
+        """Return the teams that still have players, in the order they were formed.
+
+        A team left with no players (the host removed them all) drops out: it
+        takes no more turns, but its score stays on the scoreboard.
+        """
+        return [team for team in self.teams if team.player_ids]
 
     def start(self) -> None:
         """Start the game.

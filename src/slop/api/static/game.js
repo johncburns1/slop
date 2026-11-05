@@ -19,6 +19,7 @@ const SCRIPT_ACK_TIMEOUT_MS = 150000;
 const RESULT_HOLD_MS = 15000;
 // How long a notice of what the host did stays up.
 const NOTICE_MS = 6000;
+const REMOVED_NOTICE = "the host removed you from the game.";
 
 /** A message the server rejected. `code` and `message` come from its error reply. */
 export class GameError extends Error {
@@ -57,6 +58,18 @@ const reducers = {
   PlayerLeft(view, e) {
     view.players = view.players.filter((p) => p.id !== e.player_id);
     for (const team of view.teams) team.player_ids = team.player_ids.filter((id) => id !== e.player_id);
+  },
+  // The host removed someone. A team left with no players drops out (see `teams_in_play` on the server).
+  PlayerKicked(view, e) {
+    const ring = view.teams.filter((t) => t.player_ids.length);
+    reducers.PlayerLeft(view, e);
+    for (const role of view.current_round?.script?.roles ?? []) if (role.player_id === e.player_id) role.player_id = null;
+    const emptied = ring.find((t) => !t.player_ids.length);
+    if (!emptied || view.status !== "personality_selection") return;
+    // The ring of picks closes up: the team that picked for the emptied team picks again, for the next one.
+    const picker = ring[(ring.indexOf(emptied) - 1 + ring.length) % ring.length];
+    if (picker !== emptied) picker.has_picked = false;
+    if (view.my_pick?.team_id === emptied.id) view.my_pick = null;
   },
   TeamFormed(view, e) {
     view.teams.push({
@@ -221,6 +234,10 @@ function noticeFor(name, view, event) {
     const team = view.teams.find((t) => t.id === event.team_id);
     return `the host skipped ${team ? team.name : "the acting team"}'s turn. no points.`;
   }
+  if (name === "PlayerKicked") {
+    const player = view.players.find((p) => p.id === event.player_id);
+    return `the host removed ${player ? player.name : "a player"}.`;
+  }
   return null;
 }
 
@@ -235,7 +252,7 @@ class Game {
     // restoring: a rejoin of the saved session is in flight.
     // result: the round that just ended, while it's on screen (it isn't in the player view,
     // so a phone that reloads during it skips ahead). `endsAt` is when it goes away.
-    // notice: a short line about what the host just did, or null.
+    // notice: a short line about what the host just did, or that the host removed this player.
     this.state = { view: null, connected: null, restoring: false, result: null, notice: null };
     // The server's clock minus this phone's, so a phone with a wrong clock counts down correctly.
     this._clockOffsetMs = 0;
@@ -272,6 +289,7 @@ class Game {
   }
 
   async join(roomCode, playerName) {
+    this._set({ notice: null });
     const room = roomCode.trim().toUpperCase();
     const { player_id } = await this._send("join_game", { room_code: room, player_name: playerName });
     this._session = { roomCode: room, playerId: player_id };
@@ -372,6 +390,11 @@ class Game {
     return this._send("skip_turn", {});
   }
 
+  /** Remove another player from the game (host only). */
+  kickPlayer(playerId) {
+    return this._send("kick_player", { player_id: playerId });
+  }
+
   /** The built-in personalities as [{id, name, description}], fetched once. */
   async personalities() {
     if (!this._personalities) {
@@ -391,8 +414,10 @@ class Game {
     try {
       await this._rejoin();
     } catch (error) {
-      // The game expired or we're no longer in it: start again from home.
-      if (error instanceof GameError && error.code !== "rate_limited") this._forget();
+      // The game expired or we're no longer in it (perhaps the host removed us): start again from home.
+      if (error instanceof GameError && error.code !== "rate_limited") {
+        this._forget(error.code === "rule_broken" ? error.message : null);
+      }
       else this._set({ restoring: false });
     }
   }
@@ -406,25 +431,31 @@ class Game {
     this._set({ view, restoring: false });
   }
 
-  _forget() {
+  _forget(notice = null) {
     this._session = null;
     saveSession(null);
     clearTimeout(this._resultTimer);
     clearTimeout(this._noticeTimer);
-    this._set({ view: null, restoring: false, result: null, notice: null });
+    this._set({ view: null, restoring: false, result: null, notice });
   }
 
   _apply(name, event) {
     const view = this.state.view;
     const reduce = reducers[name];
+    if (name === "RemovedFromGame" && view && event?.game_id === view.game_id && event.player_id === view.player_id) {
+      this._forget(REMOVED_NOTICE);
+      return;
+    }
     if (!view || !reduce || event?.game_id !== view.game_id) return;
     if (name === "ScriptReady") this._syncClock(event.timestamp);
     const next = structuredClone(view);
-    const ended = name === "RoundCompleted" ? currentRound(next, event) : null;
     const notice = noticeFor(name, view, event);
+    // Only a round played to its end has a result to show; one the host skipped or
+    // cut short (by removing its whole acting team) doesn't.
+    const finished = name === "RoundCompleted" ? currentRound(next, event) : null;
+    const ended = finished?.personality_guess ? finished : null;
     reduce(next, event);
     this._set({ view: next });
-    // A skipped round has no result to show: the notice says what happened.
     if (ended && !ended.skipped) this._showResult(ended);
     if (name === "GameRestarted" || name === "GameReset") this.dismissResult();
     if (notice) this._showNotice(notice);

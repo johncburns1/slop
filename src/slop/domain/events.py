@@ -64,6 +64,24 @@ class PlayerLeft(GameEvent):
     player_id: str
 
 
+class PlayerKicked(GameEvent):
+    """Emitted when the host removes a player, in any phase of the game.
+
+    The player leaves the game and their team, loses any role in the round in
+    play, and may never rejoin as this player.
+    """
+
+    event_type: str = "PlayerKicked"
+    player_id: str
+
+
+class RemovedFromGame(GameEvent):
+    """Emitted only to a player the host is removing, just before their ``PlayerKicked``."""
+
+    event_type: str = "RemovedFromGame"
+    player_id: str
+
+
 class TeamFormed(GameEvent):
     """Emitted when a team is created."""
 

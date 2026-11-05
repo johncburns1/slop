@@ -312,6 +312,37 @@ async def reconnect(t: Table, name: str, room_code: str, player_id: str) -> Any:
     return await t.send(name, "rejoin_game", {"room_code": room_code, "player_id": player_id})
 
 
+async def test_the_host_kicks_a_player_who_is_untied_and_refused_on_rejoin() -> None:
+    async with table() as t:
+        room_code = await lobby(t, "alice", "bob", "carol")
+        ids = await player_ids(t, room_code)
+
+        refused = await t.send("bob", "kick_player", {"player_id": ids["carol"]})
+        assert await t.send("alice", "kick_player", {"player_id": ids["bob"]}) is None
+        after = await t.send("bob", "create_team", {"team_name": "Red", "color": "#f00"})
+        rejoin = await t.send(
+            "bob", "rejoin_game", {"room_code": room_code, "player_id": ids["bob"]}
+        )
+
+        assert refused["code"] == "rule_broken"
+        assert refused["message"] == "Only the host can do that"
+        assert await t.errors("bob") == [refused, after, rejoin]
+        for name in ("alice", "carol"):
+            assert await t.errors(name) == []
+        assert (await t.types("bob"))[-2:] == ["RemovedFromGame", "PlayerKicked"]
+        assert "RemovedFromGame" not in await t.types("alice")
+        assert (await t.types("alice"))[-1] == "PlayerKicked"
+        assert after["code"] == "not_in_game"
+        assert rejoin == {
+            "code": "rule_broken",
+            "message": "The host removed you from this game",
+            "request": "rejoin_game",
+        }
+        # In the lobby, a removed player may join again as someone new.
+        again = await t.send("bob", "join_game", {"room_code": room_code, "player_name": "bob2"})
+        assert again["player_id"] != ids["bob"]
+
+
 async def test_players_reconnect_mid_round_and_see_only_what_they_may() -> None:
     async with table() as t:
         room_code = await two_teams_with_personalities(t)

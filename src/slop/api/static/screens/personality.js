@@ -132,9 +132,10 @@ export function mount(root, game) {
     if (state.connected) load();
 
     room.textContent = `room ${view.room_code}`;
+    // A team with no players left is out of the ring, which closes up around it.
+    const ring = view.teams.filter((t) => t.player_ids.length);
 
-    const index = view.teams.findIndex((t) => t.id === view.team_id);
-    const mine = view.teams[index];
+    const mine = view.teams.find((t) => t.id === view.team_id);
     myTeam.replaceChildren(
       ...(mine
         ? [h("span", { class: "team-dot", style: { "--team": mine.color } }, "■"), ` you're on ${mine.name}`]
@@ -144,7 +145,7 @@ export function mount(root, game) {
     const pick = view.my_pick;
     pickForm.hidden = !mine || Boolean(pick);
     pickedCard.hidden = !pick;
-    if (mine && !pick) showTeam(target, view.teams[(index + 1) % view.teams.length]);
+    if (mine && !pick) showTeam(target, ring[(ring.indexOf(mine) + 1) % ring.length]);
     if (pick) {
       const team = view.teams.find((t) => t.id === pick.team_id);
       const personality = personalities?.find((p) => p.id === pick.personality_id);
@@ -154,10 +155,10 @@ export function mount(root, game) {
     }
 
     // Up top too: while picking, the full list below is a long scroll past the cards.
-    summary.textContent = `> ${view.teams.filter((t) => t.has_picked).length}/${view.teams.length} teams have picked`;
+    summary.textContent = `> ${ring.filter((t) => t.has_picked).length}/${ring.length} teams have picked`;
 
     progress.replaceChildren(
-      ...view.teams.map((team) =>
+      ...ring.map((team) =>
         h(
           "li",
           { class: team.id === view.team_id ? "team mine" : "team", style: { "--team": team.color } },
@@ -170,7 +171,7 @@ export function mount(root, game) {
     );
 
     waitingNote.hidden = !pick && Boolean(mine);
-    const others = view.teams.filter((t) => !t.has_picked).map((t) => t.name);
+    const others = ring.filter((t) => !t.has_picked).map((t) => t.name);
     waitingNote.textContent = others.length
       ? `waiting for other teams: ${others.join(", ")}`
       : "everyone has picked. starting the game";

@@ -7,14 +7,20 @@ them acts once, in turn. If a tie for first still stands after
 
 Every team's points count when deciding the leaders, so the tied set is
 worked out afresh after each cycle.
+
+A team with no players left (the host removed them all) drops out: it takes no
+more turns, regular or tiebreaker, and can't lead, though its score stays.
+Once fewer than ``MIN_TEAMS_IN_PLAY`` teams have players, the game ends.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 
 from slop.domain.game import Game
 from slop.domain.team import Team
 
 MAX_TIEBREAKER_CYCLES = 2
+MIN_TEAMS_IN_PLAY = 2
 
 
 @dataclass(frozen=True)
@@ -43,26 +49,58 @@ NextStep = PlayRound | StartTiebreaker | EndGame
 
 
 def leaders(game: Game) -> list[Team]:
-    """Return the teams on the highest score, in the order they were formed."""
-    if not game.teams:
+    """Return the teams in play on the highest score, in the order they were formed.
+
+    If no team has players left, every team counts.
+    """
+    teams = game.teams_in_play() or game.teams
+    if not teams:
         return []
-    top = max(team.score for team in game.teams)
-    return [team for team in game.teams if team.score == top]
+    top = max(team.score for team in teams)
+    return [team for team in teams if team.score == top]
 
 
 def next_step(game: Game) -> NextStep:
     """Decide what follows once every round before ``game.current_round`` is over."""
-    if not game.is_complete():
-        return PlayRound(acting_team_id=game.acting_team_for(game.current_round).id)
+    if len(game.teams_in_play()) < MIN_TEAMS_IN_PLAY:
+        return end_of_game(game)
     tiebreaker = game.tiebreaker
-    if tiebreaker is not None:
-        played = game.current_round - tiebreaker.first_round
-        if played < len(tiebreaker.team_ids):
-            return PlayRound(acting_team_id=tiebreaker.team_ids[played])
+    if tiebreaker is None:
+        team = next_regular_team(game)
+        if team is not None:
+            return PlayRound(acting_team_id=team.id)
+    else:
+        acted = {r.acting_team_id for r in game.rounds if r.round_number >= tiebreaker.first_round}
+        in_play = {team.id for team in game.teams_in_play()}
+        for team_id in tiebreaker.team_ids:
+            if team_id not in acted and team_id in in_play:
+                return PlayRound(acting_team_id=team_id)
     tied = leaders(game)
-    if len(tied) == 1:
-        return EndGame(winner_team_id=tied[0].id)
     cycle = tiebreaker.cycle if tiebreaker is not None else 0
-    if cycle >= MAX_TIEBREAKER_CYCLES:
-        return EndGame(winner_team_id=None)
+    if len(tied) == 1 or cycle >= MAX_TIEBREAKER_CYCLES:
+        return end_of_game(game)
     return StartTiebreaker(cycle=cycle + 1, team_ids=tuple(team.id for team in tied))
+
+
+def next_regular_team(game: Game) -> Team | None:
+    """Return the team that acts in the next regular round, or None once they are all played.
+
+    Teams take turns in the order they were formed, starting after the team
+    that acted last, each until it has acted ``rounds_per_team`` times. Teams
+    with no players are skipped. Call it only before any tiebreaker.
+    """
+    played = Counter(r.acting_team_id for r in game.rounds)
+    ids = [team.id for team in game.teams]
+    last = game.rounds[-1].acting_team_id if game.rounds else None
+    start = ids.index(last) + 1 if last in ids else 0
+    for offset in range(len(game.teams)):
+        team = game.teams[(start + offset) % len(game.teams)]
+        if team.player_ids and played[team.id] < game.settings.rounds_per_team:
+            return team
+    return None
+
+
+def end_of_game(game: Game) -> EndGame:
+    """End the game now: a single leader wins, and anything else is a draw."""
+    tied = leaders(game)
+    return EndGame(winner_team_id=tied[0].id if len(tied) == 1 else None)

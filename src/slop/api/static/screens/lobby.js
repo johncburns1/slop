@@ -1,6 +1,7 @@
 // Lobby: the room code, who's here, and forming teams until the host starts.
 
 import { attempt, errorBox, h, roomCodeBox, setRoomCode } from "../dom.js";
+import { removeButton } from "./players.js";
 
 const TEAM_COLORS = ["#E53935", "#1E88E5", "#43A047", "#FDD835", "#8E24AA", "#FB8C00", "#00ACC1", "#D81B60"];
 
@@ -89,8 +90,9 @@ export function mount(root, game) {
     return button;
   }
 
-  // Players as a file tree: ├─ ana <host> / └─ ben <you>
+  // Players as a file tree: ├─ ana <host> / └─ ben <you>. The host can remove anyone else.
   function playerTree(view, players) {
+    const hosting = Boolean(game.me()?.is_host);
     return h(
       "ul",
       { class: "players" },
@@ -98,11 +100,16 @@ export function mount(root, game) {
         const isMe = p.id === view.player_id;
         return h(
           "li",
-          { class: isMe ? "player me" : "player" },
+          { class: `player${isMe ? " me" : ""}${hosting ? " removable" : ""}` },
           h("span", { class: "branch", "aria-hidden": "true" }, i === players.length - 1 ? "└─ " : "├─ "),
-          p.name,
-          p.is_host ? h("span", { class: "tag" }, " <host>") : null,
-          isMe ? h("span", { class: "tag" }, " <you>") : null,
+          h(
+            "span",
+            { class: "player-name" },
+            p.name,
+            p.is_host ? h("span", { class: "tag" }, " <host>") : null,
+            isMe ? h("span", { class: "tag" }, " <you>") : null,
+          ),
+          hosting && !isMe ? removeButton(game, p, teamError) : null,
         );
       }),
     );

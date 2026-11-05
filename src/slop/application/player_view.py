@@ -151,7 +151,7 @@ def player_view(game: Game, player_id: str, now: datetime) -> PlayerView:
     picked_by_viewer = next(
         (
             t
-            for t in game.teams
+            for t in game.teams_in_play()
             if viewer.team_id is not None and t.personality_assigned_by == viewer.team_id
         ),
         None,
@@ -212,7 +212,8 @@ def _team_view(game: Game, team: Team, viewer: Player) -> TeamView:
         color=team.color,
         player_ids=tuple(team.player_ids),
         score=team.score,
-        has_picked=any(t.personality_assigned_by == team.id for t in game.teams),
+        # A pick for a team with no players left no longer counts: the ring closed up around it.
+        has_picked=any(t.personality_assigned_by == team.id for t in game.teams_in_play()),
         personality_id=team.assigned_personality if visible else None,
     )
 

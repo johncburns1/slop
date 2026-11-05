@@ -7,6 +7,7 @@ from slop.adapters.websocket import RecordingRealtime
 from slop.application.assign_personality import AssignPersonality, assign_personality
 from slop.application.engine import GameDeps, load_game
 from slop.application.finish_or_continue import FinishOrContinue, finish_or_continue
+from slop.application.kick_player import KickPlayer, kick_player
 from slop.application.play_again import PlayAgain, play_again
 from slop.domain import Game, GameRestarted, GameStatus
 from slop.domain.errors import GameNotFoundError, GameRuleError
@@ -83,6 +84,17 @@ async def test_a_game_still_being_played_cannot_restart(
     assert game.status == GameStatus.PLAYING  # a tiebreaker is under way
 
     with pytest.raises(GameRuleError, match="has not finished"):
+        await play_again(deps, PlayAgain(game.id, "player-1"))
+
+
+async def test_playing_again_needs_two_teams_with_players(
+    deps: GameDeps, realtime: RecordingRealtime
+):
+    game = await finished(deps, realtime, scored_after_last_round(scores=(4, 2)))
+    await kick_player(deps, KickPlayer(game.id, "player-1", "player-3"))
+    await kick_player(deps, KickPlayer(game.id, "player-1", "player-4"))
+
+    with pytest.raises(GameRuleError, match="2 teams with players"):
         await play_again(deps, PlayAgain(game.id, "player-1"))
 
 

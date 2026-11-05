@@ -20,10 +20,12 @@ from slop.domain import (
     PersonalityRevealed,
     PersonalitySelectionStarted,
     PlayerJoinedTeam,
+    PlayerKicked,
     PlayerLeft,
     PlayerReconnected,
     PromptRevealed,
     PromptSubmitted,
+    RemovedFromGame,
     Role,
     RoleAssigned,
     RoundCompleted,
@@ -103,6 +105,39 @@ def test_a_player_who_leaves_is_removed_from_the_game_and_their_team():
 
     assert [p.id for p in game.players] == ["player-1", "player-3", "player-4"]
     assert game.get_team("team-1").player_ids == ["player-1"]
+
+
+def test_a_kicked_player_is_removed_from_the_game_and_their_team_for_good():
+    game = replay([*lobby_events(), PlayerKicked(game_id=GAME_ID, player_id="player-2")])
+
+    assert [p.id for p in game.players] == ["player-1", "player-3", "player-4"]
+    assert game.get_team("team-1").player_ids == ["player-1"]
+    assert game.kicked_player_ids == ["player-2"]
+
+
+def test_a_kicked_actor_loses_their_role_and_the_others_keep_theirs():
+    game = replay(
+        [
+            *lobby_events(),
+            PersonalitySelectionStarted(game_id=GAME_ID),
+            *round_zero_events(),
+            PlayerKicked(game_id=GAME_ID, player_id="player-1"),
+        ]
+    )
+
+    assert game.rounds[0].role_assignments == {"player-2": 1}
+    assert game.get_team("team-1").player_ids == ["player-2"]
+
+
+def test_removed_from_game_is_a_notification_only():
+    before = replay(lobby_events())
+    event = RemovedFromGame(game_id=GAME_ID, player_id="player-2", timestamp=at(99))
+
+    after = apply_event(before, event)
+
+    assert after == replace(before, last_event_at=at(99))
+    with pytest.raises(ProjectionError, match="player-9"):
+        apply_event(before, RemovedFromGame(game_id=GAME_ID, player_id="player-9"))
 
 
 def test_a_reconnected_player_keeps_their_place_on_a_new_socket():
