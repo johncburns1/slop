@@ -154,6 +154,18 @@ class ScriptGenerationFailed(GameEvent):
     team_id: str
 
 
+class TurnSkipped(GameEvent):
+    """Emitted to the whole room when the host skips a turn that stalled before its script.
+
+    The round ends with no points (a ``RoundCompleted`` follows) and the turn
+    passes on as after any other round.
+    """
+
+    event_type: str = "TurnSkipped"
+    round_number: int
+    team_id: str
+
+
 class ScriptReady(GameEvent):
     """Emitted to the whole room when the acting team has its script.
 
@@ -300,3 +312,14 @@ class GameRestarted(GameEvent):
     """
 
     event_type: str = "GameRestarted"
+
+
+class GameReset(GameEvent):
+    """Emitted when the host restarts the game, in any phase after the lobby.
+
+    Like ``GameRestarted``, it keeps the players and teams and clears scores,
+    rounds, tiebreakers, personalities, and awards, but the game goes back to
+    the lobby so the group can change teams before starting again.
+    """
+
+    event_type: str = "GameReset"

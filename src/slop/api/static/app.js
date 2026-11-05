@@ -6,6 +6,7 @@
 // players' updates. Later slices add a screen module and a line to `screenFor`.
 
 import { game } from "./game.js";
+import * as hostMenu from "./host-menu.js";
 import * as connecting from "./screens/connecting.js";
 import * as finished from "./screens/finished.js";
 import * as home from "./screens/home.js";
@@ -36,11 +37,16 @@ function screenFor(state) {
 
 const root = document.getElementById("app");
 const banner = document.getElementById("offline");
+const notice = document.getElementById("notice");
+const menu = hostMenu.mount(document.getElementById("host-menu"), game);
 let current = null;
 let screen = null;
 
 function render(state) {
   banner.hidden = state.connected !== false;
+  notice.hidden = !state.notice;
+  notice.textContent = state.notice ? `> ${state.notice}` : "";
+  menu.update(state);
   const next = screenFor(state);
   if (next !== current) {
     screen?.unmount();

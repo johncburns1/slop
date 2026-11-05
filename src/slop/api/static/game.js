@@ -17,6 +17,8 @@ const ACK_TIMEOUT_MS = 10000;
 const SCRIPT_ACK_TIMEOUT_MS = 150000;
 // The next round starts the moment one ends, so hold the result on screen long enough to read it.
 const RESULT_HOLD_MS = 15000;
+// How long a notice of what the host did stays up.
+const NOTICE_MS = 6000;
 
 /** A message the server rejected. `code` and `message` come from its error reply. */
 export class GameError extends Error {
@@ -180,12 +182,18 @@ const reducers = {
     view.awards = e.awards;
   },
   GameRestarted(view) {
+    clearGame(view);
     view.status = "personality_selection";
-    view.current_round = null;
-    view.tiebreaker = null;
-    view.my_pick = null;
-    view.awards = [];
-    for (const team of view.teams) Object.assign(team, { score: 0, has_picked: false, personality_id: null });
+  },
+  // The host's restart: same players and teams, back in the lobby.
+  GameReset(view) {
+    clearGame(view);
+    view.status = "lobby";
+  },
+  // The host skipped the round; RoundCompleted follows with no points.
+  TurnSkipped(view, e) {
+    const round = currentRound(view, e);
+    if (round) round.skipped = true;
   },
   // Only the picking team gets this event, so it is always this player's own pick.
   PersonalityAssigned(view, e) {
@@ -196,6 +204,25 @@ const reducers = {
     if (team) team.has_picked = true;
   },
 };
+
+/** Keep the players and teams, and clear what the game played so far left behind. */
+function clearGame(view) {
+  view.current_round = null;
+  view.tiebreaker = null;
+  view.my_pick = null;
+  view.awards = [];
+  for (const team of view.teams) Object.assign(team, { score: 0, has_picked: false, personality_id: null });
+}
+
+/** What everyone is told when the host steps in, or null. Reads the view from before the event. */
+function noticeFor(name, view, event) {
+  if (name === "GameReset") return "the host restarted the game. back to the lobby.";
+  if (name === "TurnSkipped") {
+    const team = view.teams.find((t) => t.id === event.team_id);
+    return `the host skipped ${team ? team.name : "the acting team"}'s turn. no points.`;
+  }
+  return null;
+}
 
 function currentRound(view, event) {
   return view.current_round?.round_number === event.round_number ? view.current_round : null;
@@ -208,7 +235,8 @@ class Game {
     // restoring: a rejoin of the saved session is in flight.
     // result: the round that just ended, while it's on screen (it isn't in the player view,
     // so a phone that reloads during it skips ahead). `endsAt` is when it goes away.
-    this.state = { view: null, connected: null, restoring: false, result: null };
+    // notice: a short line about what the host just did, or null.
+    this.state = { view: null, connected: null, restoring: false, result: null, notice: null };
     // The server's clock minus this phone's, so a phone with a wrong clock counts down correctly.
     this._clockOffsetMs = 0;
     this._session = loadSession();
@@ -334,6 +362,16 @@ class Game {
     return this._send("play_again", {});
   }
 
+  /** Send everyone back to the lobby with the same teams (host only, any time after the lobby). */
+  restartGame() {
+    return this._send("restart_game", {});
+  }
+
+  /** End the acting team's round with no points, before it has a script (host only). */
+  skipTurn() {
+    return this._send("skip_turn", {});
+  }
+
   /** The built-in personalities as [{id, name, description}], fetched once. */
   async personalities() {
     if (!this._personalities) {
@@ -372,7 +410,8 @@ class Game {
     this._session = null;
     saveSession(null);
     clearTimeout(this._resultTimer);
-    this._set({ view: null, restoring: false, result: null });
+    clearTimeout(this._noticeTimer);
+    this._set({ view: null, restoring: false, result: null, notice: null });
   }
 
   _apply(name, event) {
@@ -382,10 +421,13 @@ class Game {
     if (name === "ScriptReady") this._syncClock(event.timestamp);
     const next = structuredClone(view);
     const ended = name === "RoundCompleted" ? currentRound(next, event) : null;
+    const notice = noticeFor(name, view, event);
     reduce(next, event);
     this._set({ view: next });
-    if (ended) this._showResult(ended);
-    if (name === "GameRestarted") this.dismissResult();
+    // A skipped round has no result to show: the notice says what happened.
+    if (ended && !ended.skipped) this._showResult(ended);
+    if (name === "GameRestarted" || name === "GameReset") this.dismissResult();
+    if (notice) this._showNotice(notice);
     // A phone that reconnected while the script was being written can miss the team's
     // private events, but it does hear ScriptReady. Rejoining fetches the script.
     if (name === "ScriptReady" && event.acting_team_id === next.team_id && !next.current_round?.script) {
@@ -401,6 +443,12 @@ class Game {
     clearTimeout(this._resultTimer);
     this._resultTimer = setTimeout(() => this.dismissResult(), RESULT_HOLD_MS);
     this._set({ result: { ...round, endsAt: Date.now() + RESULT_HOLD_MS } });
+  }
+
+  _showNotice(text) {
+    clearTimeout(this._noticeTimer);
+    this._noticeTimer = setTimeout(() => this._set({ notice: null }), NOTICE_MS);
+    this._set({ notice: text });
   }
 
   async _send(name, payload, timeoutMs = ACK_TIMEOUT_MS) {
