@@ -27,6 +27,19 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      - name: Install project
+        run: uv sync --all-extras
+
+      # Browser tests fail rather than skip in CI, so the screenshots can't go missing quietly.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
+      - name: Install Chromium for browser tests
+        run: uv run playwright install --with-deps chromium
+
       - name: Validate (setup, lint, format, types, tests)
         run: uv run scripts/validate.py
 

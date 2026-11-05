@@ -34,3 +34,5 @@ Text is checked by a small word-list stand-in unless you ask for Claude: `--mode
 Everything runs locally with no network or cost. Stand-ins replace the LLM, storage, realtime, and moderation, and simulated players play whole games in-process or against a real server. Named scenarios in `tests/scenarios/` cover a full game, tiebreakers, disconnects, and a server crash.
 
 `scripts/validate.py` writes a report to `.validation/report.md` with a pass/fail table and each scenario's evidence. Tests add evidence with `tests.evidence.write_evidence`. CI shows the report on the run's summary page.
+
+Browser tests (`tests/browser/`, marked `browser`) play a game through the web client on phone-sized pages and save screenshots as evidence. They need Chromium, from `uv run playwright install --with-deps chromium`. Without it they skip, except in CI, where they fail. GitHub's job summary can't show local images, so CI's report lists the files and links to the run's `validation-summary` artifact, which holds them.
