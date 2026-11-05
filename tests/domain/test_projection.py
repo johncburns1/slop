@@ -9,6 +9,7 @@ from slop.domain import (
     ContentTone,
     GameCompleted,
     GameEvent,
+    GameReset,
     GameRestarted,
     GameStatus,
     Guess,
@@ -26,10 +27,12 @@ from slop.domain import (
     Role,
     RoleAssigned,
     RoundCompleted,
+    RoundStarted,
     ScriptReady,
     TeamDisbanded,
     Tiebreaker,
     TiebreakerStarted,
+    TurnSkipped,
 )
 from slop.domain.projection import ProjectionError, apply_event, replay
 from tests.event_logs import (
@@ -379,6 +382,84 @@ def test_playing_again_clears_the_awards():
 def test_only_a_finished_game_can_restart():
     with pytest.raises(ProjectionError, match="not finished"):
         replay([*lobby_events(), GameRestarted(game_id=GAME_ID)])
+
+
+def test_game_reset_mid_round_goes_back_to_the_lobby_with_the_same_players_and_teams():
+    events = [
+        *lobby_events(),
+        PersonalitySelectionStarted(game_id=GAME_ID),
+        *round_zero_events(),
+        *round_zero_scored_events(),
+        RoundStarted(game_id=GAME_ID, round_number=1, acting_team_id="team-2"),
+        GameReset(game_id=GAME_ID),
+    ]
+
+    game = replay(events)
+
+    assert game.status == GameStatus.LOBBY
+    assert [(t.id, t.player_ids) for t in game.teams] == [
+        ("team-1", ["player-1", "player-2"]),
+        ("team-2", ["player-3", "player-4"]),
+    ]
+    assert [p.team_id for p in game.players] == ["team-1", "team-1", "team-2", "team-2"]
+    assert [(t.score, t.assigned_personality, t.personality_assigned_by) for t in game.teams] == [
+        (0, None, None),
+        (0, None, None),
+    ]
+    assert (game.rounds, game.current_round, game.tiebreaker, game.awards) == ([], 0, None, [])
+
+
+def test_game_reset_after_the_game_finished_clears_the_awards():
+    events = [
+        *lobby_events(),
+        GameCompleted(game_id=GAME_ID, final_scores={}, winner_team_id=None),
+        AwardsGiven(game_id=GAME_ID, awards=awards()),
+        GameReset(game_id=GAME_ID),
+    ]
+
+    game = replay(events)
+
+    assert (game.status, game.awards) == (GameStatus.LOBBY, [])
+
+
+def test_a_game_already_in_the_lobby_cannot_be_reset():
+    with pytest.raises(ProjectionError, match="already in the lobby"):
+        replay([*lobby_events(), GameReset(game_id=GAME_ID)])
+
+
+def test_turn_skipped_marks_the_round_skipped():
+    events = [
+        *lobby_events(),
+        RoundStarted(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
+        TurnSkipped(game_id=GAME_ID, round_number=0, team_id="team-1"),
+    ]
+
+    (skipped,) = replay(events).rounds
+
+    assert skipped.skipped
+    assert (skipped.prompt, skipped.script) == (None, None)
+
+
+def test_a_turn_with_a_script_cannot_be_skipped():
+    events = [
+        *lobby_events(),
+        *round_zero_events(),
+        TurnSkipped(game_id=GAME_ID, round_number=0, team_id="team-1"),
+    ]
+
+    with pytest.raises(ProjectionError, match="already has its script"):
+        replay(events)
+
+
+def test_only_the_acting_team_s_turn_can_be_skipped():
+    events = [
+        *lobby_events(),
+        RoundStarted(game_id=GAME_ID, round_number=0, acting_team_id="team-1"),
+        TurnSkipped(game_id=GAME_ID, round_number=0, team_id="team-2"),
+    ]
+
+    with pytest.raises(ProjectionError, match="not acting"):
+        replay(events)
 
 
 def test_apply_event_does_not_mutate_its_input():

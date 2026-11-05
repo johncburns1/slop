@@ -58,6 +58,7 @@ class Round:
     guess_deadline: datetime | None = None  # None only in rounds from before the guess timer
     guessing_ended: bool = False  # no more guesses: time ran out or the acting team ended it
     guessing_closed: bool = False  # the acting team has picked a winner, or said nobody
+    skipped: bool = False  # the host skipped the turn before the acting team had its script
     personality_guess: str | None = None
     personality_correct: bool = False
     round_score: dict[str, int] = field(default_factory=dict)  # team_id -> points

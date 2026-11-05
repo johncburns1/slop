@@ -21,6 +21,8 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
 - ``pick_winning_guess {guess_index}`` (an int, or null for "nobody got it")
 - ``guess_personality {personality_id}``
 - ``play_again {}`` (host only, once the game has finished)
+- ``restart_game {}`` (host only, any time after the lobby: back to the lobby)
+- ``skip_turn {}`` (host only, while the acting team has no script yet)
 
 Messages with no ``->`` ack with null.
 
@@ -75,6 +77,23 @@ connection hasn't joined a game), ``game_not_found``, ``rule_broken``,
 name, prompt, or guess for the game's content setting; the player can try
 different words); ``message`` is safe to show to players and ``request`` is
 the message name.
+
+The host can step in at any point. ``restart_game`` sends everyone back to
+the lobby with the same players and teams, from personality selection,
+mid-round, or once the game has finished: the room gets ``GameReset`` and
+the game's status is ``lobby`` again, with scores, rounds, the tiebreaker,
+personalities, picks, and awards cleared and any guess timer stopped. Teams
+can then be changed before the host starts again. (``play_again`` instead
+goes straight to personality selection, and gets ``GameRestarted``.)
+``skip_turn`` is for a team stalled on its prompt: allowed only while the
+round is ``waiting_for_prompt`` (no prompt yet, or the script failed), it
+ends the round with no points. The room gets ``TurnSkipped {round_number,
+team_id}``, then ``RoundCompleted`` with unchanged scores, then the next
+``RoundStarted``, ``TiebreakerStarted``, or ``GameCompleted`` as after any
+round. Once the team has its script, ``skip_turn`` is a ``rule_broken``
+error. A script still being written for a skipped or restarted round is
+thrown away, and its ``submit_prompt`` gets ``rule_broken``. Both messages
+from anyone but the host are a ``rule_broken`` error to the sender only.
 
 Each connection may send 10 messages a second on average, in bursts of up to
 20 (``slop serve --rate-limit/--rate-burst``, see ``slop.api.rate_limit``). A
@@ -151,6 +170,8 @@ from slop.application.join_game import JoinGame, join_game
 from slop.application.leave_game import LeaveGame, leave_game
 from slop.application.play_again import PlayAgain, play_again
 from slop.application.rejoin_game import RejoinGame, rejoin_game
+from slop.application.restart_game import RestartGame, restart_game
+from slop.application.skip_turn import SkipTurn, skip_turn
 from slop.application.submit_prompt import SubmitPrompt, submit_prompt
 from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 from slop.domain.personalities import PERSONALITIES
@@ -205,6 +226,8 @@ class GameMessages:
         self._route("pick_winning_guess", PickWinningGuessRequest, self.pick_winning_guess)
         self._route("guess_personality", PersonalityRequest, self.guess_personality)
         self._route("play_again", NoPayload, self.play_again)
+        self._route("restart_game", NoPayload, self.restart_game)
+        self._route("skip_turn", NoPayload, self.skip_turn)
         self._realtime.on_disconnect(self.disconnected)
 
     async def create_game(self, sid: str, request: CreateGameRequest) -> GameCreatedReply:
@@ -304,6 +327,18 @@ class GameMessages:
     async def play_again(self, sid: str, request: NoPayload) -> None:
         seat = self._seat(sid)
         await play_again(self._deps, PlayAgain(seat.game_id, seat.player_id))
+
+    async def restart_game(self, sid: str, request: NoPayload) -> None:
+        seat = self._seat(sid)
+        self._guess_timers.track(
+            await restart_game(self._deps, RestartGame(seat.game_id, seat.player_id))
+        )
+
+    async def skip_turn(self, sid: str, request: NoPayload) -> None:
+        seat = self._seat(sid)
+        self._guess_timers.track(
+            await skip_turn(self._deps, SkipTurn(seat.game_id, seat.player_id))
+        )
 
     async def disconnected(self, sid: str) -> None:
         """Forget the connection. Its player stays in the game, to reconnect later."""

@@ -349,6 +349,60 @@ button:disabled {
   color: var(--bg);
 }
 
+/* What the host just did, for everyone: skipped a turn, restarted the game. */
+.notice {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 10px 20px;
+  text-align: center;
+  font-weight: 700;
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* The host's menu, above every screen after the lobby. */
+.host-bar {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 20px 0;
+}
+
+.host-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 1ch;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--accent);
+  text-transform: lowercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.host-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.host-menu > summary::before {
+  content: "[+";
+  content: "[+" / "";
+}
+
+.host-menu[open] > summary::before {
+  content: "[-";
+  content: "[-" / "";
+}
+
+.host-menu > summary::after {
+  content: "]";
+  content: "]" / "";
+}
+
+.host-menu[open] {
+  padding-bottom: 8px;
+}
+
 /* Home */
 
 .brand {

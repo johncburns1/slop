@@ -218,6 +218,54 @@ async def test_host_plays_again_once_the_game_is_over() -> None:
             assert (await t.types(name))[-1] == "GameRestarted"
 
 
+async def test_host_skips_a_stalled_turn_and_the_room_sees_it() -> None:
+    async with table() as t:
+        await two_teams_with_personalities(t)
+
+        refused = await t.send("carol", "skip_turn")
+        assert await t.send("alice", "skip_turn") is None
+
+        assert refused == {
+            "code": "rule_broken",
+            "message": "Only the host can do that",
+            "request": "skip_turn",
+        }
+        assert await t.errors("carol") == [refused]
+        for name in ("alice", "bob", "dave"):
+            assert await t.errors(name) == []
+        for name in t.players:
+            assert (await t.types(name))[-3:] == ["TurnSkipped", "RoundCompleted", "RoundStarted"]
+
+        # Blue gets its script, so its turn plays out instead.
+        await t.send("dave", "submit_prompt", {"prompt": "penguins unionize"})
+        too_late = await t.send("alice", "skip_turn")
+        assert too_late["code"] == "rule_broken"
+        assert "already have their script" in too_late["message"]
+
+
+async def test_host_restarts_mid_round_back_to_the_lobby_and_the_timer_stops() -> None:
+    async with table() as t:
+        room_code = await two_teams_with_personalities(t, guess_timer_seconds=1)
+        ids = await player_ids(t, room_code)
+        await t.send("alice", "submit_prompt", {"prompt": "a haunted vending machine"})
+
+        refused = await t.send("bob", "restart_game")
+        assert await t.send("alice", "restart_game") is None
+
+        assert refused["code"] == "rule_broken"
+        assert await t.errors("bob") == [refused]
+        for name in t.players:
+            assert (await t.types(name))[-1] == "GameReset"
+        await asyncio.sleep(1.5)  # past the deadline the round had
+        for name in t.players:
+            assert "GuessingEnded" not in await t.types(name)
+        view = await reconnect(t, "carol", room_code, ids["carol"])
+        assert view["status"] == "lobby"
+        assert view["current_round"] is None
+        assert [team["score"] for team in view["teams"]] == [0, 0]
+        assert [len(team["player_ids"]) for team in view["teams"]] == [2, 2]
+
+
 async def test_bad_payload_and_messages_before_joining_are_errors_to_the_sender() -> None:
     async with table() as t:
         await lobby(t, "alice")

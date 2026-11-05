@@ -12,6 +12,7 @@ from slop.domain import (
     GameCompleted,
     GameCreated,
     GameEvent,
+    GameReset,
     GameRestarted,
     GuessAccepted,
     GuessingEnded,
@@ -38,6 +39,7 @@ from slop.domain import (
     TeamDisbanded,
     TeamFormed,
     TiebreakerStarted,
+    TurnSkipped,
 )
 
 GAME_ID = "game-1"
@@ -169,8 +171,9 @@ def round_one_unguessed_events() -> list[GameEvent]:
 def full_game_events() -> list[GameEvent]:
     """A short game that uses every event type.
 
-    Team 1 wins and gets its awards, then the group plays again and is back to
-    picking personalities.
+    Team 1 wins and gets its awards, then the group plays again. Team 1 stalls
+    on its first prompt and the host skips its turn, then restarts the game
+    back to the lobby.
     """
     return [
         *lobby_events(),
@@ -203,6 +206,12 @@ def full_game_events() -> list[GameEvent]:
         ),
         AwardsGiven(game_id=GAME_ID, awards=awards()),
         GameRestarted(game_id=GAME_ID),
+        *round_zero_events()[:2],
+        RoundStarted(game_id=GAME_ID, timestamp=at(90), round_number=0, acting_team_id="team-1"),
+        TurnSkipped(game_id=GAME_ID, round_number=0, team_id="team-1"),
+        RoundCompleted(game_id=GAME_ID, round_number=0, final_scores={"team-1": 0, "team-2": 0}),
+        RoundStarted(game_id=GAME_ID, timestamp=at(91), round_number=1, acting_team_id="team-2"),
+        GameReset(game_id=GAME_ID),
     ]
 
 

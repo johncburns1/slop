@@ -194,6 +194,17 @@ export function mount(root, game) {
 
   const betweenRounds = h("p", { class: "note cursor", role: "status" }, "next round coming up");
 
+  // The host's way past a team stuck on its prompt, or whose script keeps failing.
+  const skipNote = h("p", { class: "note" });
+  const skipError = errorBox();
+  const skipButton = h("button", { type: "button", class: "secondary" });
+  skipButton.addEventListener("click", () => {
+    const team = game.state.view?.teams.find((t) => t.id === game.state.view.current_round?.acting_team_id);
+    if (!confirm(`Skip ${team ? team.name : "this team"}'s turn? They get no points this round.`)) return;
+    attempt(skipButton, skipError, () => game.skipTurn());
+  });
+  const skipCard = h("div", { class: "card host" }, h("h2", {}, "sudo"), skipNote, skipButton, skipError);
+
   root.append(
     h(
       "section",
@@ -211,6 +222,7 @@ export function mount(root, game) {
       personalityForm,
       guessForm,
       myGuesses,
+      skipCard,
       betweenRounds,
     ),
   );
@@ -411,6 +423,7 @@ export function mount(root, game) {
       personalityForm.reset();
       personalityBar.hidden = true;
       personalityError.hidden = true;
+      skipError.hidden = true;
     }
     // Only the acting team hears about a failed script, and the submit's ack is still a success.
     const failures = round?.script_failures ?? 0;
@@ -441,6 +454,15 @@ export function mount(root, game) {
     guessForm.hidden = !round || acting || !guessing || !view.team_id;
     myGuesses.hidden = !round || acting;
     betweenRounds.hidden = Boolean(round);
+    const canSkip = Boolean(game.me()?.is_host) && round?.phase === "waiting_for_prompt" && !round.script;
+    skipCard.hidden = !canSkip;
+    if (canSkip) {
+      const team = view.teams.find((t) => t.id === round.acting_team_id);
+      skipNote.textContent = acting
+        ? "you're the host. stuck? skip your team's turn. no points, and the turn passes on."
+        : `you're the host. ${team ? team.name : "they"} stuck, or their script keeps failing? skip their turn. no points, and the turn passes on.`;
+      skipButton.textContent = acting ? "Skip our turn" : "Skip their turn";
+    }
     showCountdown();
     // The script is gone when guessing ends, so don't leave the phone scrolled down past the form.
     if (judging && lastPhase === "guessing") window.scrollTo(0, 0);

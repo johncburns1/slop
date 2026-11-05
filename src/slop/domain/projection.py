@@ -17,6 +17,7 @@ from slop.domain.events import (
     GameCompleted,
     GameCreated,
     GameEvent,
+    GameReset,
     GameRestarted,
     GuessAccepted,
     GuessingEnded,
@@ -43,6 +44,7 @@ from slop.domain.events import (
     TeamDisbanded,
     TeamFormed,
     TiebreakerStarted,
+    TurnSkipped,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus, Tiebreaker
 from slop.domain.player import Player
@@ -227,18 +229,23 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             if game.status != GameStatus.FINISHED:
                 raise ProjectionError(f"Game {game.id} has not finished")
             game.awards = list(event.awards)
+        case TurnSkipped():
+            current = _round(game, event.round_number)
+            if current.acting_team_id != event.team_id:
+                raise ProjectionError(f"Team {event.team_id} is not acting in this round")
+            if current.script is not None:
+                raise ProjectionError(f"Round {event.round_number} already has its script")
+            current.skipped = True
         case GameRestarted():
             if game.status != GameStatus.FINISHED:
                 raise ProjectionError(f"Game {game.id} has not finished")
-            for team in game.teams:
-                team.score = 0
-                team.assigned_personality = None
-                team.personality_assigned_by = None
-            game.rounds = []
-            game.current_round = 0
-            game.tiebreaker = None
-            game.awards = []
+            _clear_last_game(game)
             game.set_personality_selection_phase()
+        case GameReset():
+            if game.status == GameStatus.LOBBY:
+                raise ProjectionError(f"Game {game.id} is already in the lobby")
+            _clear_last_game(game)
+            game.status = GameStatus.LOBBY
         case _:
             raise ProjectionError(f"No projection for event type {event.event_type}")
     game.last_event_at = event.timestamp
@@ -259,6 +266,18 @@ def _created(event: GameCreated) -> Game:
         created_at=event.timestamp,
         last_event_at=event.timestamp,
     )
+
+
+def _clear_last_game(game: Game) -> None:
+    """Keep the players and teams, and clear everything the game played so far left behind."""
+    for team in game.teams:
+        team.score = 0
+        team.assigned_personality = None
+        team.personality_assigned_by = None
+    game.rounds = []
+    game.current_round = 0
+    game.tiebreaker = None
+    game.awards = []
 
 
 def _player(game: Game, player_id: str) -> Player:

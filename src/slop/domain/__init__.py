@@ -10,6 +10,7 @@ from slop.domain.events import (
     GameCompleted,
     GameCreated,
     GameEvent,
+    GameReset,
     GameRestarted,
     GuessAccepted,
     GuessingEnded,
@@ -36,6 +37,7 @@ from slop.domain.events import (
     TeamDisbanded,
     TeamFormed,
     TiebreakerStarted,
+    TurnSkipped,
 )
 from slop.domain.game import ContentTone, Game, GameSettings, GameStatus, Tiebreaker
 from slop.domain.player import Player
@@ -52,6 +54,7 @@ __all__ = [
     "GameCompleted",
     "GameCreated",
     "GameEvent",
+    "GameReset",
     "GameRestarted",
     "GameSettings",
     "GameStatus",
@@ -88,4 +91,5 @@ __all__ = [
     "TeamFormed",
     "Tiebreaker",
     "TiebreakerStarted",
+    "TurnSkipped",
 ]
