@@ -235,8 +235,11 @@ class Game {
     return view?.players.find((p) => p.id === view.player_id);
   }
 
-  async createAndJoin(contentTone, playerName) {
-    const { room_code } = await this._send("create_game", { content_tone: contentTone });
+  async createAndJoin(contentTone, roundsPerTeam, playerName) {
+    const { room_code } = await this._send("create_game", {
+      content_tone: contentTone,
+      rounds_per_team: roundsPerTeam,
+    });
     await this.join(room_code, playerName);
   }
 

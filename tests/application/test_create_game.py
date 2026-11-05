@@ -97,11 +97,12 @@ async def test_it_gives_up_when_every_room_code_is_taken(
         await create_game(deps, CreateGame(content_tone=ContentTone.FAMILY))
 
 
+@pytest.mark.parametrize("rounds", [0, 6])
 async def test_unplayable_settings_are_rejected_without_storing_anything(
-    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
+    deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime, rounds: int
 ):
-    with pytest.raises(GameRuleError, match="rounds_per_team"):
-        await create_game(deps, CreateGame(content_tone=ContentTone.FAMILY, rounds_per_team=0))
+    with pytest.raises(GameRuleError, match="1 to 5 rounds"):
+        await create_game(deps, CreateGame(content_tone=ContentTone.FAMILY, rounds_per_team=rounds))
 
     assert await storage.get_game_by_room_code("ROOM1") is None
     assert realtime.broadcasts_to("ROOM1") == []

@@ -10,6 +10,8 @@ from slop.domain.player import Player
 from slop.domain.round import Round
 from slop.domain.team import Team
 
+MAX_ROUNDS_PER_TEAM = 5
+
 
 class GameStatus(Enum):
     """Possible states of a game session."""
@@ -41,10 +43,12 @@ class GameSettings:
         """Check the settings are playable.
 
         Raises:
-            GameRuleError: If any limit or count is below one
+            GameRuleError: If any limit or count is below one, or a team would
+                play more than ``MAX_ROUNDS_PER_TEAM`` rounds
         """
+        if not 1 <= self.rounds_per_team <= MAX_ROUNDS_PER_TEAM:
+            raise GameRuleError(f"A game has 1 to {MAX_ROUNDS_PER_TEAM} rounds per team")
         counts = {
-            "rounds_per_team": self.rounds_per_team,
             "guess_timer_seconds": self.guess_timer_seconds,
             "max_players_per_team": self.max_players_per_team,
         }

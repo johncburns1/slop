@@ -6,6 +6,7 @@ const TEAM_COLORS = ["#E53935", "#1E88E5", "#43A047", "#FDD835", "#8E24AA", "#FB
 
 export function mount(root, game) {
   const code = roomCodeBox();
+  const roundsNote = h("p", { class: "note" });
   const leaveButton = h("button", { type: "button", class: "link" }, "exit");
   const leaveError = errorBox();
   leaveButton.addEventListener("click", () => {
@@ -70,6 +71,7 @@ export function mount(root, game) {
       { class: "screen lobby" },
       h("header", { class: "lobby-header" }, h("p", { class: "eyebrow" }, "room code"), leaveButton),
       code,
+      roundsNote,
       leaveError,
       h("h2", { class: "section-title" }, "teams"),
       teamList,
@@ -119,6 +121,8 @@ export function mount(root, game) {
     const max = view.settings.max_players_per_team;
 
     setRoomCode(code, view.room_code);
+    const rounds = view.settings.rounds_per_team;
+    roundsNote.textContent = `${rounds} ${rounds === 1 ? "round" : "rounds"} each`;
 
     teamList.replaceChildren(
       ...view.teams.map((team) => {

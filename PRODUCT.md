@@ -22,7 +22,7 @@ Groups of friends playing in the same room, usually young adults at a game night
    - gets a script of about 90 seconds, with one character for each player, that only the team can see
    - performs it while the other teams shout guesses at the original prompt
    - picks the winning guess, or says nobody got it, and then guesses which personality wrote their script
-5. **Finish.** Each team plays three rounds, with tiebreakers if needed. The game ends with final scores and AI-written awards, and the group can play again.
+5. **Finish.** Each team plays the number of rounds the host chose when creating the game (1 to 5, three by default), with tiebreakers if needed. The game ends with final scores and AI-written awards, and the group can play again.
 
 ## Scoring
 
