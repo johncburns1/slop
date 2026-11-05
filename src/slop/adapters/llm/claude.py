@@ -103,7 +103,7 @@ class ClaudeLLMAdapter:
         prompt: str,
         personality: AIPersonality,
         num_roles: int,
-        content_tone: ContentTone = ContentTone.FAMILY,
+        content_tone: ContentTone,
     ) -> Script:
         """Ask Claude for a script with exactly ``num_roles`` roles."""
         if num_roles < 1:

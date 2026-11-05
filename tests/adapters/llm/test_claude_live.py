@@ -10,17 +10,23 @@ script with its latency and token usage to ``claude-live/sample.md`` in the evid
 directory (``.validation/evidence`` unless SLOP_EVIDENCE_DIR says otherwise).
 """
 
+import json
 import logging
 import os
 import time
+from typing import Any
 
+import anthropic
+import httpx2
 import pytest
 
 from slop.adapters.llm import ClaudeLLMAdapter
-from slop.adapters.llm.claude import DEFAULT_MODEL
+from slop.adapters.llm.claude import DEFAULT_MAX_RETRIES, DEFAULT_MODEL, DEFAULT_TIMEOUT
+from slop.domain import ContentTone
 from slop.domain.personalities import get_personality
 from slop.ports import LLMPort
-from tests.adapters.llm.contract import PROMPT, LLMPortContract, make_summary
+from tests.adapters.llm.contract import PROMPT, LLMPortContract, ToneUsed, make_summary
+from tests.adapters.llm.fake_anthropic import tone_requested
 from tests.evidence import write_evidence
 
 pytestmark = pytest.mark.skipif(
@@ -32,8 +38,22 @@ MODEL = os.environ.get("SLOP_LLM_MODEL", DEFAULT_MODEL)
 
 
 @pytest.fixture
-def live() -> ClaudeLLMAdapter:
-    return ClaudeLLMAdapter(model=MODEL)
+def sent() -> list[dict[str, Any]]:
+    """The body of every request the live adapter sends."""
+    return []
+
+
+@pytest.fixture
+def live(sent: list[dict[str, Any]]) -> ClaudeLLMAdapter:
+    async def record(request: httpx2.Request) -> None:
+        sent.append(json.loads(request.content))
+
+    client = anthropic.AsyncAnthropic(
+        timeout=DEFAULT_TIMEOUT,
+        max_retries=DEFAULT_MAX_RETRIES,
+        http_client=anthropic.DefaultAsyncHttpxClient(event_hooks={"request": [record]}),
+    )
+    return ClaudeLLMAdapter(model=MODEL, client=client)
 
 
 class TestClaudeLLMAdapterLiveContract(LLMPortContract):
@@ -42,6 +62,10 @@ class TestClaudeLLMAdapterLiveContract(LLMPortContract):
     @pytest.fixture
     def adapter(self, live: ClaudeLLMAdapter) -> LLMPort:
         return live
+
+    @pytest.fixture
+    def tone_used(self, sent: list[dict[str, Any]]) -> ToneUsed:
+        return lambda _result: tone_requested(sent[-1])
 
 
 def _calls(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -59,7 +83,7 @@ async def test_writes_a_sample_script_with_latency_and_usage(
     caplog.set_level(logging.INFO, logger="slop.adapters.llm.claude")
 
     started = time.perf_counter()
-    script = await live.generate_script(PROMPT, get_personality("noir"), 3)
+    script = await live.generate_script(PROMPT, get_personality("noir"), 3, ContentTone.FAMILY)
     script_seconds = time.perf_counter() - started
     awards = await live.generate_awards(make_summary())
 

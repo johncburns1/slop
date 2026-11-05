@@ -4,7 +4,8 @@ from dataclasses import dataclass, field, replace
 
 import pytest
 
-from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
+from slop.adapters.llm.prompts import CONTENT_GUIDANCE
 from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
@@ -22,6 +23,7 @@ from slop.domain import (
     Script,
 )
 from slop.ports.llm import GameSummary, LLMError, RoundSummary
+from tests.adapters.llm.fake_anthropic import FakeAnthropicAPI, user_message
 from tests.builders import DEFAULT_PROMPT, scored_after_last_round
 
 
@@ -34,9 +36,11 @@ class FakeLLM:
     summaries: list[GameSummary] = field(default_factory=list)
 
     async def generate_script(
-        self, prompt: str, personality: AIPersonality, num_roles: int
+        self, prompt: str, personality: AIPersonality, num_roles: int, content_tone: ContentTone
     ) -> Script:
-        return await StandInLLMAdapter().generate_script(prompt, personality, num_roles)
+        return await StandInLLMAdapter().generate_script(
+            prompt, personality, num_roles, content_tone
+        )
 
     async def generate_awards(self, summary: GameSummary) -> list[Award]:
         self.summaries.append(summary)
@@ -249,3 +253,34 @@ async def test_family_games_drop_awards_adult_games_keep(
     game = await give_awards(deps, game)
 
     assert len(game.awards) == kept
+
+
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_the_awards_are_asked_for_in_the_games_content_tone(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone
+):
+    llm = FakeLLM(awards=awards_to("Red Team", "Blue Team", "Player 1"))
+    game = won_by_red()
+    game.settings.content_tone = tone
+    deps = replace(deps, llm=llm)
+    game = await finished(deps, realtime, game)
+
+    await give_awards(deps, game)
+
+    assert [summary.content_tone for summary in llm.summaries] == [tone]
+
+
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_claude_is_told_the_games_content_tone_for_awards(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone
+):
+    api = FakeAnthropicAPI()
+    game = won_by_red()
+    game.settings.content_tone = tone
+    deps = replace(deps, llm=ClaudeLLMAdapter(client=api.client()))
+    game = await finished(deps, realtime, game)
+
+    await give_awards(deps, game)
+
+    (body,) = api.requests
+    assert CONTENT_GUIDANCE[tone] in user_message(body)

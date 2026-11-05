@@ -5,7 +5,8 @@ from dataclasses import dataclass, field, replace
 
 import pytest
 
-from slop.adapters.llm import StandInLLMAdapter
+from slop.adapters.llm import ClaudeLLMAdapter, StandInLLMAdapter
+from slop.adapters.llm.prompts import CONTENT_GUIDANCE
 from slop.adapters.moderation import StandInModerationAdapter
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import RecordingRealtime
@@ -30,6 +31,7 @@ from slop.domain import (
 )
 from slop.domain.errors import ContentBlockedError, GameNotFoundError, GameRuleError
 from slop.ports.llm import GameSummary, LLMError
+from tests.adapters.llm.fake_anthropic import FakeAnthropicAPI, user_message
 from tests.builders import in_guessing_phase, waiting_for_prompt
 from tests.evidence import write_evidence
 
@@ -50,15 +52,17 @@ class FakeLLM:
     flagged: int = 0
     flag_line: str = "Gary: Gloop!"
     calls: list[tuple[str, AIPersonality, int]] = field(default_factory=list)
+    tones: list[ContentTone] = field(default_factory=list)
 
     async def generate_script(
-        self, prompt: str, personality: AIPersonality, num_roles: int
+        self, prompt: str, personality: AIPersonality, num_roles: int, content_tone: ContentTone
     ) -> Script:
         self.calls.append((prompt, personality, num_roles))
+        self.tones.append(content_tone)
         if len(self.calls) <= self.failures:
             raise LLMError("provider unavailable")
         script = await StandInLLMAdapter().generate_script(
-            prompt, personality, num_roles + self.extra_roles
+            prompt, personality, num_roles + self.extra_roles, content_tone
         )
         if len(self.calls) - self.failures <= self.flagged:
             script.content += f"\n{self.flag_line}"
@@ -362,9 +366,9 @@ async def test_every_part_of_the_script_players_see_is_moderated(
     @dataclass
     class FlaggedRoleLLM(FakeLLM):
         async def generate_script(
-            self, prompt: str, personality: AIPersonality, num_roles: int
+            self, prompt: str, personality: AIPersonality, num_roles: int, content_tone: ContentTone
         ) -> Script:
-            script = await super().generate_script(prompt, personality, num_roles)
+            script = await super().generate_script(prompt, personality, num_roles, content_tone)
             role = script.roles[0]
             if where == "role name":
                 role.name = "Gloop"
@@ -398,3 +402,49 @@ async def test_family_games_block_scripts_adult_games_allow(
 
     assert (game.rounds[0].script is not None) == allowed
     assert len(llm.calls) == (1 if allowed else 2)
+
+
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_the_script_is_asked_for_in_the_games_content_tone(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone
+):
+    llm = FakeLLM()
+    game = waiting_for_prompt()
+    game.settings.content_tone = tone
+    game = await start(deps, realtime, game)
+
+    await submit_prompt(with_llm(deps, llm), SubmitPrompt(game.id, "player-1", PROMPT))
+
+    assert llm.tones == [tone]
+
+
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_a_retried_script_is_asked_for_in_the_same_content_tone(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone
+):
+    llm = FakeLLM(failures=1)
+    game = waiting_for_prompt()
+    game.settings.content_tone = tone
+    game = await start(deps, realtime, game)
+
+    await submit_prompt(with_llm(deps, llm), SubmitPrompt(game.id, "player-1", PROMPT))
+
+    assert llm.tones == [tone, tone]
+
+
+@pytest.mark.parametrize("tone", list(ContentTone))
+async def test_claude_is_told_the_games_content_tone(
+    deps: GameDeps, realtime: RecordingRealtime, tone: ContentTone
+):
+    api = FakeAnthropicAPI()
+    game = waiting_for_prompt()
+    game.settings.content_tone = tone
+    game = await start(deps, realtime, game)
+
+    await submit_prompt(
+        replace(deps, llm=ClaudeLLMAdapter(client=api.client())),
+        SubmitPrompt(game.id, "player-1", PROMPT),
+    )
+
+    (body,) = api.requests
+    assert CONTENT_GUIDANCE[tone] in user_message(body)

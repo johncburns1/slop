@@ -1,7 +1,9 @@
 """Deterministic stand-in for a real LLM provider.
 
 Builds believable scripts from fixed word banks, seeded by the inputs, so the
-same prompt, personality, and role count always give the same script. Awards
+same prompt, personality, role count, and content setting always give the same
+script. An adult game's script is the family script plus a closing stage
+direction with a word that family moderation blocks. Awards
 are built the same way from the game summary, quoting its real prompts and
 guesses, so the same game always gets the same awards. It makes
 no network calls and costs nothing, which makes it suitable for local play,
@@ -100,6 +102,10 @@ GENERIC_LINES: tuple[str, ...] = (
     "Let's take a deep breath and think about {prompt} calmly.",
     "That is the worst idea I have ever heard. Let's do it.",
 )
+
+
+# Closes every adult script. Family scripts have nothing in its place.
+ADULT_CLOSING = "Someone mutters: damn, that got out of hand."
 
 
 @dataclass(frozen=True)
@@ -210,6 +216,7 @@ class StandInLLMAdapter:
         prompt: str,
         personality: AIPersonality,
         num_roles: int,
+        content_tone: ContentTone,
     ) -> Script:
         """Generate a deterministic script for the given inputs."""
         if num_roles < 1:
@@ -244,7 +251,12 @@ class StandInLLMAdapter:
             speaker = role
             turn += 1
 
-        content = "\n".join([prompt.title(), f"[{style.opening}]", *body, f"[{style.closing}]"])
+        closings = [style.closing]
+        if content_tone == ContentTone.ADULT:
+            closings.append(ADULT_CLOSING)
+        content = "\n".join(
+            [prompt.title(), f"[{style.opening}]", *body, *(f"[{c}]" for c in closings)]
+        )
         return Script(
             content=content,
             roles=roles,

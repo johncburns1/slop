@@ -18,6 +18,9 @@ from typing import Any
 import anthropic
 import httpx2
 
+from slop.adapters.llm.prompts import CONTENT_GUIDANCE
+from slop.domain import ContentTone
+
 MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -82,6 +85,13 @@ class FakeAnthropicAPI:
 def user_message(body: dict[str, Any]) -> str:
     content = body["messages"][0]["content"]
     return content if isinstance(content, str) else content[0]["text"]
+
+
+def tone_requested(body: dict[str, Any]) -> ContentTone:
+    """The one content tone whose guidance the request carries."""
+    message = user_message(body)
+    (tone,) = [tone for tone, text in CONTENT_GUIDANCE.items() if text in message]
+    return tone
 
 
 def schema_fields(body: dict[str, Any]) -> set[str]:

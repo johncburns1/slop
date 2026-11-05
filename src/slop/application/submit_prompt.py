@@ -169,7 +169,7 @@ async def _generate(
     """
     for _ in range(SCRIPT_ATTEMPTS):
         try:
-            script = await deps.llm.generate_script(prompt, personality, num_roles)
+            script = await deps.llm.generate_script(prompt, personality, num_roles, tone)
         except LLMError:
             continue
         if len(script.roles) != num_roles:

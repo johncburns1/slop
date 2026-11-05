@@ -8,9 +8,15 @@ LLMPortContract and overriding the ``adapter`` fixture:
         def adapter(self) -> LLMPort:
             return MyAdapter(...)
 
+        @pytest.fixture
+        def tone_used(self) -> ToneUsed:
+            return ...  # tells which content tone the adapter wrote a result for
+
 Every test here asserts only what the port promises, so it holds for any
 correct implementation, deterministic or not.
 """
+
+from collections.abc import Callable
 
 import pytest
 
@@ -23,6 +29,13 @@ PROMPT = "Detective solves mysterious art heist"
 # The port targets ~150 words; allow generous slack for real models.
 MIN_WORDS = 50
 MAX_WORDS = 300
+
+FAMILY = ContentTone.FAMILY
+
+# Given what the adapter just returned, the content tone it wrote that for. An
+# adapter that calls a provider reads this from the request it sent, since the
+# text a model writes can't prove what it was asked for.
+type ToneUsed = Callable[[Script | list[Award]], ContentTone]
 
 
 def make_personality(id: str = "noir") -> AIPersonality:
@@ -78,19 +91,24 @@ class LLMPortContract:
         """Return the adapter under test. Subclasses must override this."""
         raise NotImplementedError("Override the adapter fixture in your subclass")
 
+    @pytest.fixture
+    def tone_used(self) -> ToneUsed:
+        """Return how to tell which tone a result was written for. Subclasses must override."""
+        raise NotImplementedError("Override the tone_used fixture in your subclass")
+
     async def test_returns_script(self, adapter: LLMPort) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(), 2)
+        script = await adapter.generate_script(PROMPT, make_personality(), 2, FAMILY)
 
         assert isinstance(script, Script)
 
     @pytest.mark.parametrize("num_roles", [1, 2, 3, 4, 5, 6, 8])
     async def test_has_exactly_requested_roles(self, adapter: LLMPort, num_roles: int) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(), num_roles)
+        script = await adapter.generate_script(PROMPT, make_personality(), num_roles, FAMILY)
 
         assert script.get_role_count() == num_roles
 
     async def test_roles_have_unique_names_and_descriptions(self, adapter: LLMPort) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(), 6)
+        script = await adapter.generate_script(PROMPT, make_personality(), 6, FAMILY)
 
         names = [role.name for role in script.roles]
         assert all(name.strip() for name in names)
@@ -98,19 +116,19 @@ class LLMPortContract:
         assert all(role.description.strip() for role in script.roles)
 
     async def test_every_role_appears_in_content(self, adapter: LLMPort) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(), 4)
+        script = await adapter.generate_script(PROMPT, make_personality(), 4, FAMILY)
 
         for role in script.roles:
             assert role.name in script.content
 
     @pytest.mark.parametrize("personality_id", ["noir", "melodrama", "absurdist", "custom"])
     async def test_uses_requested_personality(self, adapter: LLMPort, personality_id: str) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(personality_id), 2)
+        script = await adapter.generate_script(PROMPT, make_personality(personality_id), 2, FAMILY)
 
         assert script.personality == personality_id
 
     async def test_length_is_performable(self, adapter: LLMPort) -> None:
-        script = await adapter.generate_script(PROMPT, make_personality(), 3)
+        script = await adapter.generate_script(PROMPT, make_personality(), 3, FAMILY)
 
         assert MIN_WORDS <= script.word_count <= MAX_WORDS
         assert script.word_count == len(script.content.split())
@@ -159,3 +177,19 @@ class LLMPortContract:
 
         assert len(awards) == AWARD_COUNT
         assert all(award.recipient in quiet.names() for award in awards)
+
+    @pytest.mark.parametrize("content_tone", list(ContentTone))
+    async def test_script_is_written_for_the_requested_tone(
+        self, adapter: LLMPort, tone_used: ToneUsed, content_tone: ContentTone
+    ) -> None:
+        script = await adapter.generate_script(PROMPT, make_personality(), 2, content_tone)
+
+        assert tone_used(script) == content_tone
+
+    @pytest.mark.parametrize("content_tone", list(ContentTone))
+    async def test_awards_are_written_for_the_requested_tone(
+        self, adapter: LLMPort, tone_used: ToneUsed, content_tone: ContentTone
+    ) -> None:
+        awards = await adapter.generate_awards(make_summary(content_tone=content_tone))
+
+        assert tone_used(awards) == content_tone

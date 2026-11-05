@@ -78,16 +78,19 @@ class LLMPort(Protocol):
         prompt: str,
         personality: AIPersonality,
         num_roles: int,
+        content_tone: ContentTone,
     ) -> Script:
         """Generate a script based on the given prompt and parameters.
 
-        The script should target ~150 words (~90 seconds spoken) and
-        include exactly num_roles character roles with descriptions.
+        The script should target ~150 words (~90 seconds spoken),
+        include exactly num_roles character roles with descriptions,
+        and suit content_tone.
 
         Args:
             prompt: The 6-word user prompt to base the script on
             personality: The AI personality configuration to use
             num_roles: Number of character roles needed (matches team size)
+            content_tone: The game's content setting, which the script must suit
 
         Returns:
             A Script object with roles, content, and metadata

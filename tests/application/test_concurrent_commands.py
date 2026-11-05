@@ -253,10 +253,10 @@ class GatedLLM(StandInLLMAdapter):
         self._gate = gate
 
     async def generate_script(
-        self, prompt: str, personality: AIPersonality, num_roles: int
+        self, prompt: str, personality: AIPersonality, num_roles: int, content_tone: ContentTone
     ) -> Script:
         await self._gate.pass_through()
-        return await super().generate_script(prompt, personality, num_roles)
+        return await super().generate_script(prompt, personality, num_roles, content_tone)
 
     async def generate_awards(self, summary: GameSummary) -> list[Award]:
         await self._gate.pass_through()
