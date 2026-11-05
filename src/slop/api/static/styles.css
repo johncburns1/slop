@@ -181,6 +181,7 @@ input::placeholder {
 
 button:focus-visible,
 .option:has(input:focus-visible),
+.segment:has(input:focus-visible),
 .swatch:has(input:focus-visible) {
   outline: 3px solid var(--accent-2);
   outline-offset: 3px;
@@ -432,6 +433,40 @@ button:disabled {
   font-weight: 400;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+/* Picks one number, like the rounds per team. */
+.segments-label {
+  font-weight: 700;
+}
+
+.segments {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  border: 2px dashed var(--line);
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segment input {
+  position: absolute;
+  opacity: 0;
+}
+
+.segment:has(input:checked) {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Lobby */

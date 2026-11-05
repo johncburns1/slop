@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+
 from slop.adapters.clock import FixedClock
 from slop.adapters.storage import InMemoryStorage
 from slop.adapters.websocket import SocketIORealtime
@@ -177,6 +179,22 @@ async def test_acting_team_plays_a_round_over_socketio() -> None:
         assert "ScriptGenerated" not in carol_types
         for name in t.players:
             assert await t.errors(name) == []
+
+
+@pytest.mark.parametrize("rounds", [0, 6])
+async def test_create_game_rejects_rounds_outside_one_to_five(rounds: int) -> None:
+    async with table() as t:
+        await t.connect("alice")
+
+        error = await t.send(
+            "alice", "create_game", {"content_tone": "family", "rounds_per_team": rounds}
+        )
+
+        assert error == {
+            "code": "rule_broken",
+            "message": "A game has 1 to 5 rounds per team",
+            "request": "create_game",
+        }
 
 
 async def test_host_plays_again_once_the_game_is_over() -> None:

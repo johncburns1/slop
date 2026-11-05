@@ -301,13 +301,19 @@ def test_default_settings_pass_the_check():
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"rounds_per_team": 0}, "rounds_per_team"),
+        ({"rounds_per_team": 0}, "1 to 5 rounds"),
+        ({"rounds_per_team": 6}, "1 to 5 rounds"),
         ({"guess_timer_seconds": 0}, "guess_timer_seconds"),
         ({"max_players_per_team": 0}, "max_players_per_team"),
         ({"max_players": 2}, "max_players must be at least"),
     ],
 )
 def test_unplayable_settings_fail_the_check(overrides, message):
-    """Counts below one, or a game smaller than one team, break the rules."""
+    """Counts below one, too many rounds, or a game smaller than one team break the rules."""
     with pytest.raises(GameRuleError, match=message):
         GameSettings(**overrides).check()
+
+
+@pytest.mark.parametrize("rounds", [1, 5])
+def test_the_ends_of_the_rounds_range_are_playable(rounds):
+    GameSettings(rounds_per_team=rounds).check()

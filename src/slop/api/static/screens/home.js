@@ -3,6 +3,8 @@
 import { attempt, errorBox, h } from "../dom.js";
 
 const NAME_KEY = "slop.name";
+const ROUND_CHOICES = [1, 2, 3, 4, 5];
+const DEFAULT_ROUNDS = 3;
 
 const LOGO = String.raw` ____  _     ___  ____
 / ___|| |   / _ \|  _ \
@@ -44,6 +46,11 @@ export function mount(root, game) {
     toneOption("family", "family", "clean fun, all ages", true),
     toneOption("adult", "adult", "anything goes", false),
   );
+  const rounds = h(
+    "div",
+    { class: "segments", role: "radiogroup", "aria-labelledby": "rounds-label" },
+    ROUND_CHOICES.map((count) => roundsOption(count)),
+  );
   const createButton = h("button", { type: "submit", class: "secondary" }, "Create game");
   const createError = errorBox();
 
@@ -81,11 +88,14 @@ export function mount(root, game) {
         event.preventDefault();
         const player = playerName(createError);
         const tone = tones.querySelector("input:checked").value;
-        if (player) await attempt(createButton, createError, () => game.createAndJoin(tone, player));
+        const roundsPerTeam = Number(rounds.querySelector("input:checked").value);
+        if (player) await attempt(createButton, createError, () => game.createAndJoin(tone, roundsPerTeam, player));
       },
     },
     h("h2", {}, "new game"),
     tones,
+    h("span", { id: "rounds-label", class: "prompt segments-label" }, "rounds per team"),
+    rounds,
     createButton,
     createError,
   );
@@ -123,5 +133,14 @@ function toneOption(value, label, hint, checked) {
     h("input", { type: "radio", name: "content-tone", value, checked }),
     h("span", { class: "option-label" }, label),
     h("span", { class: "option-hint" }, hint),
+  );
+}
+
+function roundsOption(count) {
+  return h(
+    "label",
+    { class: "segment" },
+    h("input", { type: "radio", name: "rounds-per-team", value: count, checked: count === DEFAULT_ROUNDS }),
+    h("span", {}, String(count)),
   );
 }
