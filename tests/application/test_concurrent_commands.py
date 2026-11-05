@@ -206,10 +206,6 @@ async def test_every_accepted_guess_survives_the_timer_closing_guessing_midway(
 
     accepted = _texts(f"guess {n}" for n, result in enumerate(results) if isinstance(result, Game))
     rejected = [result for result in results if not isinstance(result, Game)]
-    assert accepted
-    assert rejected
-    assert all(isinstance(result, GameRuleError) for result in rejected)
-
     snapshot, replayed, events = await _state(deps, table.game.id)
     assert _texts(g.guess for g in snapshot.rounds[0].prompt_guesses) == accepted
     assert _texts(g.guess for g in replayed.rounds[0].prompt_guesses) == accepted
@@ -217,6 +213,10 @@ async def test_every_accepted_guess_survives_the_timer_closing_guessing_midway(
     assert sum(isinstance(e, GuessingEnded) for e in events) == 1
     assert snapshot.rounds[0].guessing_ended
     assert replayed == snapshot
+    # The timer really did close guessing midway: some guesses got in, the rest were turned away.
+    assert accepted
+    assert rejected
+    assert all(isinstance(result, GameRuleError) for result in rejected)
 
 
 class Gate:
