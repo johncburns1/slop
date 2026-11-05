@@ -23,6 +23,7 @@ dev = [
     "mypy>=1.8.0",
     "ruff>=0.1.0",
     "python-socketio[asyncio-client]>=5.17.0",
+    "playwright>=1.64.1",
 ]
 
 [build-system]
@@ -32,6 +33,10 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-rs"  # say why anything skipped, such as browser tests without a browser
+markers = [
+    "browser: drives the web client in a real browser; skips if Chromium isn't installed",
+]
 
 [tool.ruff]
 line-length = 100

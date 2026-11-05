@@ -14,5 +14,15 @@ fi
 uv python install 3.13
 uv sync --all-extras
 
+# Chromium for the browser tests (tests/browser). Launching it takes about a second,
+# so a warm disk skips the download and apt-get.
+if ! uv run --no-sync python -c '
+from playwright.sync_api import sync_playwright
+with sync_playwright() as playwright:
+    playwright.chromium.launch().close()
+' >/dev/null 2>&1; then
+  uv run --no-sync playwright install --with-deps chromium
+fi
+
 # Game data lives outside the repo (and outside /data, which unmounts on suspend).
 mkdir -p "$HOME/.local/share/slop"
