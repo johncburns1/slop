@@ -74,8 +74,11 @@ Teams that act well get guessed, so the acting team earns a point too.
 
 ## Open questions
 
-- Which personalities ship first, and how do we describe them so the picks feel strategic?
-- When does the acting team find out its personality, before or after performing?
-- How many tiebreakers before we call it a draw?
-- ~~What happens when a team stalls on a prompt or a script falls flat?~~ Decided: a failed script lets the team submit again, and the host can skip a team's turn (no points) any time before it has its script.
-- ~~Does the host need controls such as kicking a player or restarting?~~ Decided: yes. The host can restart the game back to the lobby at any point (same players and teams, scores reset) and skip a stalled turn. Kicking a player is a separate change.
+- Which personalities ship first, and how do we describe them so the picks feel strategic? (For now: noir, melodrama, absurdist, nature documentary, Shakespearean, corporate training video.)
+- When does the acting team find out its personality, before or after performing? (For now: after its guess.)
+- How many tiebreakers before we call it a draw? (For now: up to 2 cycles, then a draw.)
+
+## Decided
+
+- **A team stalls or a script falls flat:** a failed script lets the team submit again, and the host can skip a team's turn (no points) any time before it has its script.
+- **Host controls:** the host can remove a player, skip a stalled turn, or restart the game back to the lobby (same players and teams, scores reset) at any point.
