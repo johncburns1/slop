@@ -25,7 +25,9 @@ has no fields; ``?`` marks optional fields), and get the result in the ack:
 Messages with no ``->`` ack with null.
 
 ``rounds_per_team`` is 1 to 5 and defaults to 3; anything else is a
-``rule_broken`` error. ``create_game`` only creates the game; the host then sends ``join_game`` like
+``rule_broken`` error.
+
+``create_game`` only creates the game; the host then sends ``join_game`` like
 everyone else, and the first player to join is the host. ``join_game`` ties
 the connection to the new player, and every later message acts as that
 player in that game. Disconnecting unties the connection but leaves the
