@@ -37,9 +37,11 @@ async def rejoin_game(deps: GameDeps, command: RejoinGame) -> Rejoined:
 
     Raises:
         GameNotFoundError: If no game has this room code
-        GameRuleError: If the player isn't in the game
+        GameRuleError: If the player isn't in the game, or the host removed them
     """
     async with locked_room(deps, command.room_code.strip().upper()) as game:
+        if command.player_id in game.kicked_player_ids:
+            raise GameRuleError("The host removed you from this game")
         if all(player.id != command.player_id for player in game.players):
             raise GameRuleError(f"Player {command.player_id} is not in this game")
 

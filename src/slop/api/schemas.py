@@ -63,6 +63,12 @@ class JoinTeamRequest(Request):
     team_id: str
 
 
+class KickPlayerRequest(Request):
+    """Payload of `kick_player`: the player the host removes."""
+
+    player_id: str
+
+
 class PersonalityRequest(Request):
     """Payload of `assign_personality` and `guess_personality`."""
 

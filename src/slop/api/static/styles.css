@@ -883,3 +883,29 @@ button:disabled {
 .countdown.urgent {
   color: var(--error);
 }
+
+/* A player row with the host's remove button at its end. */
+.player.removable {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.player.removable .branch {
+  white-space: pre;
+}
+
+.player.removable .player-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.small.remove {
+  min-height: 36px;
+  margin-left: 8px;
+  background: var(--bg);
+  color: var(--error);
+  border-color: var(--error);
+  box-shadow: 2px 2px 0 var(--line);
+}

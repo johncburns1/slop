@@ -158,15 +158,19 @@ async def commit(deps: GameDeps, game: Game | None, events: Sequence[GameEvent |
     """
     if game is not None and not deps.locks.held(game.id):
         raise RuntimeError(f"Committing to game {game.id} without holding its lock")
-    # (event, player_ids), where player_ids None means the whole room.
-    outgoing = [
-        (_stamp(deps, item.event), item.player_ids)
-        if isinstance(item, Private)
-        else (_stamp(deps, item), None)
-        for item in events
-    ]
-    for event, _ in outgoing:
+    # (event, socket_ids), where socket_ids None means the whole room. A private
+    # event's players are looked up as the game is once it applies, so one can
+    # reach a player whom a later event in the same commit removes.
+    outgoing: list[tuple[GameEvent, tuple[str, ...] | None]] = []
+    for item in events:
+        event = _stamp(deps, item.event if isinstance(item, Private) else item)
         game = apply_event(game, event)
+        sockets = (
+            tuple(game.get_player(player_id).socket_id for player_id in item.player_ids)
+            if isinstance(item, Private)
+            else None
+        )
+        outgoing.append((event, sockets))
     if game is None:
         raise ValueError("commit needs at least one event")
 
@@ -174,12 +178,12 @@ async def commit(deps: GameDeps, game: Game | None, events: Sequence[GameEvent |
         await deps.storage.save_event(event)
     await deps.storage.save_snapshot(game)
 
-    for event, player_ids in outgoing:
-        if player_ids is None:
+    for event, socket_ids in outgoing:
+        if socket_ids is None:
             await deps.realtime.broadcast_to_room(game.room_code, event)
             continue
-        for player_id in player_ids:
-            await deps.realtime.send_to_player(game.get_player(player_id).socket_id, event)
+        for socket_id in socket_ids:
+            await deps.realtime.send_to_player(socket_id, event)
     return game
 
 

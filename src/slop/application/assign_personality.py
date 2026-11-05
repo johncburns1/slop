@@ -6,6 +6,7 @@ from slop.application.engine import GameDeps, Private, commit, locked_game
 from slop.domain.errors import GameRuleError
 from slop.domain.events import GameEvent, PersonalityAssigned, PersonalityPicked, RoundStarted
 from slop.domain.game import Game, GameStatus
+from slop.domain.game_end import next_regular_team
 from slop.domain.personalities import get_personality
 from slop.domain.team import Team
 
@@ -26,10 +27,12 @@ def target_team(game: Game, picking_team_id: str) -> Team:
 
     Teams form a ring in the order they were formed: team ``i`` picks for team
     ``i + 1``, and the last team picks for the first. So every team gets
-    exactly one personality and no team picks for itself.
+    exactly one personality and no team picks for itself. Teams with no
+    players left are out of the ring, which closes up around them.
     """
-    index = next(i for i, team in enumerate(game.teams) if team.id == picking_team_id)
-    return game.teams[(index + 1) % len(game.teams)]
+    ring = game.teams_in_play()
+    index = next(i for i, team in enumerate(ring) if team.id == picking_team_id)
+    return ring[(index + 1) % len(ring)]
 
 
 async def assign_personality(deps: GameDeps, command: AssignPersonality) -> Game:
@@ -49,7 +52,7 @@ async def assign_personality(deps: GameDeps, command: AssignPersonality) -> Game
     async with locked_game(deps, command.game_id) as game:
         if game.status != GameStatus.PERSONALITY_SELECTION:
             raise GameRuleError("The game is not picking personalities")
-        if len(game.teams) < MIN_TEAMS:
+        if len(game.teams_in_play()) < MIN_TEAMS:
             raise GameRuleError(f"Picking personalities needs at least {MIN_TEAMS} teams")
         picking = _picking_team(game, command.player_id)
         target = target_team(game, picking.id)
@@ -68,14 +71,13 @@ async def assign_personality(deps: GameDeps, command: AssignPersonality) -> Game
             PersonalityPicked(game_id=game.id, picked_by_team_id=picking.id),
         ]
         still_waiting = [
-            t for t in game.teams if t.assigned_personality is None and t is not target
+            t for t in game.teams_in_play() if t.assigned_personality is None and t is not target
         ]
-        if not still_waiting:
+        first = next_regular_team(game)
+        if not still_waiting and first is not None:
             events.append(
                 RoundStarted(
-                    game_id=game.id,
-                    round_number=game.current_round,
-                    acting_team_id=game.get_acting_team().id,
+                    game_id=game.id, round_number=game.current_round, acting_team_id=first.id
                 )
             )
         return await commit(deps, game, events)

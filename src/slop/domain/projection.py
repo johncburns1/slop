@@ -30,10 +30,12 @@ from slop.domain.events import (
     PersonalitySelectionStarted,
     PlayerJoined,
     PlayerJoinedTeam,
+    PlayerKicked,
     PlayerLeft,
     PlayerReconnected,
     PromptRevealed,
     PromptSubmitted,
+    RemovedFromGame,
     RoleAssigned,
     RoundCompleted,
     RoundStarted,
@@ -101,6 +103,18 @@ def apply_event(game: Game | None, event: GameEvent) -> Game:
             if player.team_id is not None:
                 _team(game, player.team_id).remove_player(player.id)
             game.remove_player(player.id)
+        case PlayerKicked():
+            player = _player(game, event.player_id)
+            if player.team_id is not None:
+                _team(game, player.team_id).remove_player(player.id)
+            for current in game.rounds:
+                if current.round_number == game.current_round:
+                    current.role_assignments.pop(player.id, None)
+            game.remove_player(player.id)
+            game.kicked_player_ids.append(player.id)
+        case RemovedFromGame():
+            # Notification only: the removal itself is in PlayerKicked.
+            _player(game, event.player_id)
         case TeamFormed():
             game.add_team(
                 Team(

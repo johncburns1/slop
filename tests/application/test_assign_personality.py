@@ -83,6 +83,14 @@ def test_teams_pick_round_a_ring_so_nobody_picks_for_itself(num_teams, expected)
     assert {team.id: target_team(game, team.id).id for team in game.teams} == expected
 
 
+def test_a_team_with_no_players_drops_out_of_the_ring():
+    game = selecting_personalities(num_teams=3, players_per_team=1)
+    game.get_team("team-2").remove_player("player-2")
+
+    assert target_team(game, "team-1").id == "team-3"
+    assert target_team(game, "team-3").id == "team-1"
+
+
 async def test_only_the_picking_team_learns_the_pick_and_the_room_learns_a_pick_was_made(
     deps: GameDeps, storage: InMemoryStorage, realtime: RecordingRealtime
 ):

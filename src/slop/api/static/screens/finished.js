@@ -60,7 +60,10 @@ export function mount(root, game) {
     const me = game.me();
     const ranked = [...view.teams].sort((a, b) => b.score - a.score);
     // The server's rule: a sole leader wins, and a tie that's still standing at the end is a draw.
-    const leaders = ranked.filter((t) => t.score === ranked[0]?.score);
+    // Teams with no players left keep their scores but can't lead (`leaders` in game_end.py).
+    const inPlay = ranked.filter((t) => t.player_ids.length);
+    const contenders = inPlay.length ? inPlay : ranked;
+    const leaders = contenders.filter((t) => t.score === contenders[0]?.score);
     const winner = leaders.length === 1 ? leaders[0] : null;
 
     verdict.textContent = asciiBox(winner ? "WINNER" : "DRAW");

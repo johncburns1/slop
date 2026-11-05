@@ -345,9 +345,9 @@ export function mount(root, game) {
   }
 
   function showNext(view) {
-    nextUp.hidden = !view.current_round;
-    if (!view.current_round) return;
-    const next = nextTeam(view);
+    const next = view.current_round ? nextTeam(view) : undefined;
+    nextUp.hidden = next === undefined;
+    if (next === undefined) return;
     nextUp.replaceChildren("next up: ", next ? teamName(next) : "final scores, or a tiebreaker");
   }
 
@@ -510,21 +510,27 @@ function roundText(view) {
     const turn = number - tiebreaker.first_round + 1;
     return `tiebreaker ${tiebreaker.cycle}: round ${turn} of ${tiebreaker.team_ids.length}`;
   }
+  // Once a team has dropped out, the number of rounds left depends on how many it played.
+  if (view.teams.some((t) => !t.player_ids.length)) return `round ${number + 1}`;
   return `round ${number + 1} of ${view.teams.length * view.settings.rounds_per_team}`;
 }
 
 /**
- * The team that acts after this round, or null if that depends on the scores.
- * The server's rule: teams take turns in order until the regular rounds run
- * out, then a tiebreaker's teams act in its order (`next_step` in game_end.py).
+ * The team that acts after this round, null if that depends on the scores, or
+ * undefined if this phone can't tell. The server's rule: teams take turns in
+ * order until the regular rounds run out, then a tiebreaker's teams act in its
+ * order, skipping teams with no players (`next_step` in game_end.py).
  */
 function nextTeam(view) {
   const number = view.current_round.round_number;
   const tiebreaker = view.tiebreaker;
+  const playing = (team) => Boolean(team?.player_ids.length);
   if (tiebreaker && number >= tiebreaker.first_round) {
-    const nextId = tiebreaker.team_ids[number - tiebreaker.first_round + 1];
-    return view.teams.find((t) => t.id === nextId) ?? null;
+    const after = tiebreaker.team_ids.slice(tiebreaker.team_ids.indexOf(view.current_round.acting_team_id) + 1);
+    return after.map((id) => view.teams.find((t) => t.id === id)).find(playing) ?? null;
   }
+  // How many regular rounds are left depends on how many a dropped-out team played.
+  if (!view.teams.every(playing)) return undefined;
   const following = number + 1;
   if (following >= view.teams.length * view.settings.rounds_per_team) return null;
   return view.teams[following % view.teams.length];
